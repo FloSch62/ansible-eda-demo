@@ -1,0 +1,44 @@
+---
+- name: Build TopoLink custom resources (CR only)
+  nokia.eda_apps_core_v1.topolink:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: cronly
+    resource:
+      metadata:
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.name }}"
+        labels:
+          demo.nokia.com/source: "uv-ansible-toponodes"
+      spec:
+        links: "{{ item.links }}"
+  loop: "{{ topolinks }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: topolink_crs
+
+- name: Discover existing TopoLinks
+  nokia.eda_apps_core_v1.topolink:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: query
+    namespace: "{{ eda_namespace }}"
+    name: "{{ item.name }}"
+  loop: "{{ topolinks }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: existing_topolinks
+  failed_when: false
+
+- name: Fail if TopoLink lookup returned unexpected errors
+  ansible.builtin.fail:
+    msg: >-
+      Failed to query TopoLink {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+  when:
+    - item.failed | default(false)
+    - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+  loop: "{{ existing_topolinks.results }}"
+  loop_control:
+    label: "{{ item.item.name | default(item.item | default('unknown')) }}"

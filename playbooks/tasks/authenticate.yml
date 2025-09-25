@@ -1,0 +1,22 @@
+---
+- name: Retrieve EDA access token
+  nokia.eda_utils_v1.get_token:
+    base_url: "{{ eda_api_url }}"
+    client_id: "{{ client_id }}"
+    client_secret: "{{ client_secret if client_secret is not none else omit }}"
+    username: "{{ eda_username }}"
+    password: "{{ eda_password }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    keycloak_url: "{{ keycloak_url }}"
+    keycloak_admin_realm: "{{ keycloak_admin_realm }}"
+    keycloak_client_id: "{{ keycloak_client_id }}"
+    keycloak_username: "{{ keycloak_username }}"
+    keycloak_password: "{{ keycloak_password }}"
+    keycloak_eda_realm: "{{ keycloak_eda_realm }}"
+  register: token
+  no_log: true
+
+- name: Prepare bearer token header
+  ansible.builtin.set_fact:
+    eda_auth_token: "Bearer {{ token.result.access_token }}"
+  no_log: true

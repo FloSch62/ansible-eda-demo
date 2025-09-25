@@ -9,4 +9,4 @@ lint-yaml:
 	uv run yamllint -s .
 
 run:
-	uv run ansible-playbook playbooks/create-toponodes.yaml
+	uv run ansible-playbook playbooks/deploy-environment.yaml

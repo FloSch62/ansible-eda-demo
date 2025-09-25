@@ -1,0 +1,50 @@
+---
+- name: Build TopoNode custom resources (CR only)
+  nokia.eda_apps_core_v1.toponode:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: cronly
+    resource:
+      metadata:
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.name }}"
+        labels:
+          eda.nokia.com/role: "{{ item.role }}"
+          demo.nokia.com/source: "uv-ansible-toponodes"
+      spec:
+        nodeProfile: "{{ item.node_profile }}"
+        operatingSystem: "{{ item.operating_system | default('srl') }}"
+        platform: "{{ item.platform }}"
+        version: "{{ item.version }}"
+        productionAddress: >-
+          {{ {'ipv4': item.production_ipv4} if item.production_ipv4 is defined else omit }}
+  loop: "{{ toponodes }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: topo_crs
+
+- name: Discover existing TopoNodes
+  nokia.eda_apps_core_v1.toponode:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: query
+    namespace: "{{ eda_namespace }}"
+    name: "{{ item.name }}"
+  loop: "{{ toponodes }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: existing_toponodes
+  failed_when: false
+
+- name: Fail if TopoNode lookup returned unexpected errors
+  ansible.builtin.fail:
+    msg: >-
+      Failed to query TopoNode {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+  when:
+    - item.failed | default(false)
+    - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+  loop: "{{ existing_toponodes.results }}"
+  loop_control:
+    label: "{{ item.item.name | default(item.item | default('unknown')) }}"

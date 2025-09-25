@@ -1,0 +1,56 @@
+---
+- name: Provision demo NodeProfiles and TopoNodes via Nokia EDA transactions
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../vars/topology/nodeprofiles.yml
+    - ../vars/topology/toponodes.yml
+    - ../vars/topology/topolinks.yml
+  pre_tasks:
+    - name: Ensure NodeProfile specs contain required keys
+      ansible.builtin.assert:
+        that:
+          - nodeprofiles.spine.name | length > 0
+          - nodeprofiles.leaf.name | length > 0
+          - nodeprofiles.spine.spec.nodeUser is defined
+          - nodeprofiles.spine.spec.onboardingPassword is defined
+          - nodeprofiles.spine.spec.onboardingUsername is defined
+          - nodeprofiles.spine.spec.operatingSystem is defined
+          - nodeprofiles.spine.spec.version is defined
+          - nodeprofiles.spine.spec.yang is defined
+          - nodeprofiles.leaf.spec.nodeUser is defined
+          - nodeprofiles.leaf.spec.onboardingPassword is defined
+          - nodeprofiles.leaf.spec.onboardingUsername is defined
+          - nodeprofiles.leaf.spec.operatingSystem is defined
+          - nodeprofiles.leaf.spec.version is defined
+          - nodeprofiles.leaf.spec.yang is defined
+        fail_msg: >-
+          Populate vars/topology/nodeprofiles.yml with valid spec data (nodeUser, onboarding credentials,
+          operatingSystem, version, and YANG bundle URL) before running the demo.
+
+    - name: Ensure TopoLink inputs are present
+      ansible.builtin.assert:
+        that:
+          - topolink_interfaces | length > 0
+          - topolinks | length > 0
+        fail_msg: >-
+          Populate vars/topology/topolinks.yml with interface definitions and logical links before running the demo.
+
+  tasks:
+    - name: Authenticate with Nokia EDA
+      ansible.builtin.import_tasks: tasks/authenticate.yml
+
+    - name: Build NodeProfile resources
+      ansible.builtin.import_tasks: tasks/nodeprofiles.yml
+
+    - name: Build TopoNode resources
+      ansible.builtin.import_tasks: tasks/toponodes.yml
+
+    - name: Build Interface resources
+      ansible.builtin.import_tasks: tasks/interfaces.yml
+
+    - name: Build TopoLink resources
+      ansible.builtin.import_tasks: tasks/topolinks.yml
+
+    - name: Submit topology transaction
+      ansible.builtin.import_tasks: tasks/transaction.yml

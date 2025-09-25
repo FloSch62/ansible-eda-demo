@@ -1,0 +1,43 @@
+---
+- name: Build NodeProfile custom resources (CR only)
+  nokia.eda_apps_core_v1.nodeprofile:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: cronly
+    resource:
+      metadata:
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.value.name }}"
+        labels:
+          demo.nokia.com/source: "uv-ansible-toponodes"
+      spec: "{{ item.value.spec | combine({}) }}"
+  loop: "{{ nodeprofiles | dict2items }}"
+  loop_control:
+    label: "{{ item.value.name }}"
+  register: nodeprofile_crs
+
+- name: Discover existing NodeProfiles
+  nokia.eda_apps_core_v1.nodeprofile:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: query
+    namespace: "{{ eda_namespace }}"
+    name: "{{ item.value.name }}"
+  loop: "{{ nodeprofiles | dict2items }}"
+  loop_control:
+    label: "{{ item.value.name }}"
+  register: existing_nodeprofiles
+  failed_when: false
+
+- name: Fail if NodeProfile lookup returned unexpected errors
+  ansible.builtin.fail:
+    msg: >-
+      Failed to query NodeProfile {{ item.item.value.name }}: {{ item.msg | default(item.body | default(item)) }}
+  when:
+    - item.failed | default(false)
+    - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+  loop: "{{ existing_nodeprofiles.results }}"
+  loop_control:
+    label: "{{ item.item.value.name | default(item.item | default('unknown')) }}"

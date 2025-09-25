@@ -1,0 +1,82 @@
+---
+- name: Initialize transaction change set
+  ansible.builtin.set_fact:
+    transaction_crs: []
+
+- name: Assemble transaction change set for NodeProfiles
+  ansible.builtin.set_fact:
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+  vars:
+    idx: "{{ loop.index0 }}"
+    lookup_result: "{{ existing_nodeprofiles.results[idx] }}"
+    operation: >-
+      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+  loop: "{{ nodeprofile_crs.results }}"
+  loop_control:
+    label: "{{ item.item.value.name }}"
+
+- name: Extend transaction change set with TopoNodes
+  ansible.builtin.set_fact:
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+  vars:
+    idx: "{{ loop.index0 }}"
+    lookup_result: "{{ existing_toponodes.results[idx] }}"
+    operation: >-
+      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+  loop: "{{ topo_crs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Extend transaction change set with Interfaces
+  ansible.builtin.set_fact:
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+  vars:
+    idx: "{{ loop.index0 }}"
+    lookup_result: "{{ existing_interfaces.results[idx] }}"
+    operation: >-
+      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+  loop: "{{ interface_crs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Extend transaction change set with TopoLinks
+  ansible.builtin.set_fact:
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+  vars:
+    idx: "{{ loop.index0 }}"
+    lookup_result: "{{ existing_topolinks.results[idx] }}"
+    operation: >-
+      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+  loop: "{{ topolink_crs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Submit transaction for NodeProfiles, TopoNodes, Interfaces, and TopoLinks
+  nokia.eda_core_v1.transaction.v2.transaction:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    description: "{{ transaction_description }}"
+    dryRun: false
+    resultType: normal
+    retain: true
+    crs: "{{ transaction_crs }}"
+  register: transaction
+
+- name: Display transaction identifier
+  ansible.builtin.debug:
+    msg: "Submitted transaction {{ transaction.result.id }} for {{ transaction_crs | length }} resources"
+
+- name: Wait for transaction execution result
+  nokia.eda_core_v1.transaction.v2.result.execution:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    transactionId: "{{ transaction.result.id }}"
+    waitForComplete: true
+    failOnErrors: true
+  register: transaction_execution
+
+- name: Summarize transaction outcome
+  ansible.builtin.debug:
+    msg: "{{ transaction_execution.result.summary | default(transaction_execution.result, true) }}"

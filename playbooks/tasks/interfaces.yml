@@ -1,0 +1,46 @@
+---
+- name: Build Interface custom resources (CR only)
+  nokia.eda_interfaces_v1alpha1.interface:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: cronly
+    resource:
+      metadata:
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.name }}"
+        labels:
+          demo.nokia.com/source: "uv-ansible-toponodes"
+      spec:
+        description: "{{ item.description | default(omit) }}"
+        type: "{{ item.type | default('interface') }}"
+        members: "{{ item.members }}"
+  loop: "{{ topolink_interfaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: interface_crs
+
+- name: Discover existing Interfaces
+  nokia.eda_interfaces_v1alpha1.interface:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: query
+    namespace: "{{ eda_namespace }}"
+    name: "{{ item.name }}"
+  loop: "{{ topolink_interfaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: existing_interfaces
+  failed_when: false
+
+- name: Fail if Interface lookup returned unexpected errors
+  ansible.builtin.fail:
+    msg: >-
+      Failed to query Interface {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+  when:
+    - item.failed | default(false)
+    - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+  loop: "{{ existing_interfaces.results }}"
+  loop_control:
+    label: "{{ item.item.name | default(item.item | default('unknown')) }}"
