@@ -1,6 +1,6 @@
 # UV-Based Ansible Demo: Create EDA TopoNodes
 
-This demo provisions a pair of NodeProfiles (spine/leaf) and five Nokia EDA TopoNodes (2 spines, 3 leaves) inside the `eda` namespace. NodeProfiles are created/upserted first and the TopoNodes are applied via a single Core transaction. Everything is self-contained, relies on the published Nokia EDA collections, and uses [uv](https://github.com/astral-sh/uv) to manage Python dependencies.
+This demo provisions a pair of NodeProfiles (spine/leaf), five Nokia EDA TopoNodes (2 spines, 3 leaves), the interfaces used to wire the fabric, and the logical TopoLinks between them inside the `eda` namespace. NodeProfiles are created/upserted first and the TopoNodes, Interfaces, and TopoLinks are applied via a single Core transaction. Everything is self-contained, relies on the published Nokia EDA collections, and uses [uv](https://github.com/astral-sh/uv) to manage Python dependencies.
 
 ## Layout
 
@@ -14,7 +14,8 @@ ansible-eda-demo/
 ├── requirements.yml
 └── vars/
     ├── nodeprofiles.yml
-    └── toponodes.yml
+    ├── toponodes.yml
+    └── topolinks.yml
 ```
 
 - `pyproject.toml` pins the Python packages needed by the Nokia EDA collections.
@@ -22,6 +23,7 @@ ansible-eda-demo/
 - `inventory.yaml` stores connection/authentication variables (EDA credentials plus the Keycloak realms/client configuration used by the token helper). Verify the defaults for credentials, API URL, or TLS behaviour before running the demo.
 - `vars/nodeprofiles.yml` defines the NodeProfiles that will be ensured present (adjust the YANG bundle URL, onboarding credentials, or OS version to match your setup).
 - `vars/toponodes.yml` lists the five TopoNodes created by the demo; adjust platforms, versions, or IPs if desired.
+- `vars/topolinks.yml` describes the interface resources and TopoLinks that interconnect the nodes. Tune interface names, speeds, or link memberships to reflect your lab.
 - `playbooks/create-toponodes.yaml` acquires an access token, upserts the NodeProfiles, builds the TopoNode CR payloads (using `state=cronly`), and submits them in one transaction before waiting for the execution result.
 
 ## Prerequisites
@@ -43,8 +45,8 @@ uv sync
 #    reference ansible-collections repo so the local sources in requirements.yml resolve)
 uv run ansible-galaxy collection install -r requirements.yml
 
-# 3. Review vars/nodeprofiles.yml, vars/toponodes.yml, and inventory.yaml to ensure the data matches your environment
-$EDITOR inventory.yaml vars/nodeprofiles.yml vars/toponodes.yml
+# 3. Review vars/nodeprofiles.yml, vars/toponodes.yml, vars/topolinks.yml, and inventory.yaml to ensure the data matches your environment
+$EDITOR inventory.yaml vars/nodeprofiles.yml vars/toponodes.yml vars/topolinks.yml
 
 # 4. Execute the demo playbook
 uv run ansible-playbook playbooks/create-toponodes.yaml

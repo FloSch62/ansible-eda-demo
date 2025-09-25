@@ -14,7 +14,7 @@ all:
     keycloak_username: "admin"
     keycloak_password: "admin"
     keycloak_eda_realm: "eda"
-    transaction_description: "Demo: create 5 TopoNodes (2 spines, 3 leaves)"
+    transaction_description: "Demo: create NodeProfiles, 5 TopoNodes, interfaces, and TopoLinks"
   hosts:
     localhost:
       ansible_connection: local

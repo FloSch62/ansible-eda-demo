@@ -5,6 +5,7 @@
   vars_files:
     - ../vars/nodeprofiles.yml
     - ../vars/toponodes.yml
+    - ../vars/topolinks.yml
   pre_tasks:
     - name: Ensure NodeProfile specs contain required keys
       ansible.builtin.assert:
@@ -26,6 +27,14 @@
         fail_msg: >-
           Populate nodeprofiles.yml with valid spec data (nodeUser, onboarding credentials, operatingSystem,
           version, and YANG bundle URL) before running the demo.
+
+    - name: Ensure TopoLink inputs are present
+      ansible.builtin.assert:
+        that:
+          - topolink_interfaces | length > 0
+          - topolinks | length > 0
+        fail_msg: >-
+          Populate topolinks.yml with interface definitions and logical links before running the demo.
 
   tasks:
     - name: Retrieve EDA access token
@@ -139,6 +148,96 @@
       loop_control:
         label: "{{ item.item.name | default(item.item | default('unknown')) }}"
 
+    - name: Build Interface custom resources (CR only)
+      nokia.eda_interfaces_v1alpha1.interface:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "Bearer {{ token.result.access_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        state: cronly
+        resource:
+          metadata:
+            namespace: "{{ eda_namespace }}"
+            name: "{{ item.name }}"
+            labels:
+              demo.nokia.com/source: "uv-ansible-toponodes"
+          spec:
+            description: "{{ item.description | default(omit) }}"
+            type: "{{ item.type | default('interface') }}"
+            members: "{{ item.members }}"
+      loop: "{{ topolink_interfaces }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: interface_crs
+
+    - name: Discover existing Interfaces
+      nokia.eda_interfaces_v1alpha1.interface:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "Bearer {{ token.result.access_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        state: query
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.name }}"
+      loop: "{{ topolink_interfaces }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: existing_interfaces
+      failed_when: false
+
+    - name: Fail if Interface lookup returned unexpected errors
+      ansible.builtin.fail:
+        msg: >-
+          Failed to query Interface {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+      when:
+        - item.failed | default(false)
+        - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+      loop: "{{ existing_interfaces.results }}"
+      loop_control:
+        label: "{{ item.item.name | default(item.item | default('unknown')) }}"
+
+    - name: Build TopoLink custom resources (CR only)
+      nokia.eda_apps_core_v1.topolink:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "Bearer {{ token.result.access_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        state: cronly
+        resource:
+          metadata:
+            namespace: "{{ eda_namespace }}"
+            name: "{{ item.name }}"
+            labels:
+              demo.nokia.com/source: "uv-ansible-toponodes"
+          spec:
+            links: "{{ item.links }}"
+      loop: "{{ topolinks }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: topolink_crs
+
+    - name: Discover existing TopoLinks
+      nokia.eda_apps_core_v1.topolink:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "Bearer {{ token.result.access_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        state: query
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.name }}"
+      loop: "{{ topolinks }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: existing_topolinks
+      failed_when: false
+
+    - name: Fail if TopoLink lookup returned unexpected errors
+      ansible.builtin.fail:
+        msg: >-
+          Failed to query TopoLink {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+      when:
+        - item.failed | default(false)
+        - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+      loop: "{{ existing_topolinks.results }}"
+      loop_control:
+        label: "{{ item.item.name | default(item.item | default('unknown')) }}"
+
     - name: Initialize transaction change set
       ansible.builtin.set_fact:
         transaction_crs: []
@@ -167,7 +266,31 @@
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: Submit transaction for NodeProfiles and TopoNodes
+    - name: Extend transaction change set with Interfaces
+      ansible.builtin.set_fact:
+        transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+      vars:
+        idx: "{{ loop.index0 }}"
+        lookup_result: "{{ existing_interfaces.results[idx] }}"
+        operation: >-
+          {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+      loop: "{{ interface_crs.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Extend transaction change set with TopoLinks
+      ansible.builtin.set_fact:
+        transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+      vars:
+        idx: "{{ loop.index0 }}"
+        lookup_result: "{{ existing_topolinks.results[idx] }}"
+        operation: >-
+          {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+      loop: "{{ topolink_crs.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Submit transaction for NodeProfiles, TopoNodes, Interfaces, and TopoLinks
       nokia.eda_core_v1.transaction.v2.transaction:
         base_url: "{{ eda_api_url }}"
         auth_token: "Bearer {{ token.result.access_token }}"

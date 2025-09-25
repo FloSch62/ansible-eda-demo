@@ -3,3 +3,4 @@ collections:
   - name: nokia.eda_utils_v1
   - name: nokia.eda_apps_core_v1
   - name: nokia.eda_core_v1
+  - name: nokia.eda_interfaces_v1alpha1
