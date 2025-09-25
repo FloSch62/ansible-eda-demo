@@ -42,7 +42,7 @@ ansible-eda-demo/
 ## Prerequisites
 
 1. [`uv`](https://docs.astral.sh/uv/getting-started/installation/) installed on your workstation.
-2. Reachability to the EDA API (default URL in `inventories/demo/inventory.yaml` is `https://100.82.85.163:9443`).
+2. Reachability to the EDA API
 3. The reference `ansible-collections` repository available as a sibling directory (the included `requirements.yml` installs the collections directly from those sources).
 4. Valid EDA credentials. The playbook defaults to the platform's factory credentials (`admin` / `admin`) and will auto-discover the `client_secret` via Keycloak when it is omitted.
 
