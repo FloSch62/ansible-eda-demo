@@ -1,0 +1,14 @@
+---
+strict: true
+use_default_rules: true
+warn_list: []
+skip_list: []
+exclude_paths:
+  - collections/
+  - .venv/
+  - .uv/
+  - uv.lock
+mock_modules: []
+enable_list:
+  - complexity
+max_block_depth: 3

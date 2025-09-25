@@ -14,4 +14,7 @@ dependencies = [
 ]
 
 [tool.uv]
-dev-dependencies = []
+dev-dependencies = [
+    "ansible-lint>=24.6.1",
+    "yamllint>=1.35.1",
+]

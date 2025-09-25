@@ -52,6 +52,23 @@ uv run ansible-playbook playbooks/create-toponodes.yaml
 
 The playbook prints the transaction identifier and waits for completion (`failOnErrors: true`). If the transaction succeeds, you will see a summary of the applied changes.
 
+## Linting
+
+The repository ships with strict linting profiles to keep the Ansible content healthy:
+
+```bash
+# Run the ansible-lint profile (fails on warnings, excludes the local collections cache)
+uv run ansible-lint .
+
+# Run the standalone yamllint pass with the hardened ruleset
+uv run yamllint -s .
+```
+
+Both commands use the configuration files in the project root (`.ansible-lint` and `.yamllint`).
+
+- ansible-lint runs with the built-in `complexity` rule enabled and caps block depth at 3 for easier-to-follow playbooks.
+- yamllint is configured with a strict style guide, ignores generated caches (`.venv`, `.uv`, `collections/`), and enforces document headers, indentation, truthy usage, and octal restrictions.
+
 ## Customisation
 
 - Toggle `tls_skip_verify` in `inventory.yaml` if your EDA endpoint presents a trusted certificate.

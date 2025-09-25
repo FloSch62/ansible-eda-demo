@@ -1,3 +1,4 @@
+---
 all:
   vars:
     eda_api_url: "https://100.82.85.163"

@@ -1,3 +1,4 @@
+---
 - name: Provision demo NodeProfiles and TopoNodes via Nokia EDA transactions
   hosts: localhost
   gather_facts: false

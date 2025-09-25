@@ -1,0 +1,52 @@
+---
+extends: default
+rules:
+  line-length:
+    max: 120
+    level: error
+  truthy:
+    allowed-values:
+      - 'true'
+      - 'false'
+    level: error
+  braces:
+    max-spaces-inside: 1
+    level: error
+  brackets:
+    level: error
+  colons:
+    max-spaces-before: 0
+    level: error
+  commas:
+    level: error
+  comments:
+    require-starting-space: true
+    min-spaces-from-content: 1
+    level: warning
+  comments-indentation: false
+  document-start:
+    present: true
+    level: warning
+  empty-lines:
+    max: 1
+    level: error
+  indentation:
+    indent-sequences: true
+    spaces: 2
+    level: error
+  trailing-spaces:
+    level: error
+  new-line-at-end-of-file:
+    level: error
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+    level: error
+yaml-files:
+  - '*.yaml'
+  - '*.yml'
+ignore: |
+  **/.venv/**
+  collections/**
+  **/.uv/**
+  uv.lock
