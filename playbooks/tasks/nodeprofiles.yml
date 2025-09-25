@@ -19,22 +19,6 @@
   poll: 0
   register: nodeprofile_cr_jobs
 
-- name: Launch NodeProfile discovery jobs
-  nokia.eda_apps_core_v1.nodeprofile:
-    base_url: "{{ eda_api_url }}"
-    auth_token: "{{ eda_auth_token }}"
-    tls_skip_verify: "{{ tls_skip_verify | bool }}"
-    state: query
-    namespace: "{{ eda_namespace }}"
-    name: "{{ item.value.name }}"
-  loop: "{{ nodeprofiles | dict2items }}"
-  loop_control:
-    label: "{{ item.value.name }}"
-  async: "{{ eda_async_timeout | default(120) | int }}"
-  poll: 0
-  register: existing_nodeprofile_jobs
-  failed_when: false
-
 - name: Wait for NodeProfile custom resource builds to finish
   ansible.builtin.async_status:
     jid: "{{ item.ansible_job_id }}"
@@ -45,38 +29,3 @@
   loop: "{{ nodeprofile_cr_jobs.results }}"
   loop_control:
     label: "{{ item.item.value.name }}"
-
-- name: Wait for NodeProfile discovery jobs to finish
-  ansible.builtin.async_status:
-    jid: "{{ item.ansible_job_id }}"
-  register: existing_nodeprofiles
-  until: existing_nodeprofiles.finished
-  retries: "{{ eda_async_retries | default(120) | int }}"
-  delay: "{{ eda_async_delay | default(1) | int }}"
-  loop: "{{ existing_nodeprofile_jobs.results }}"
-  loop_control:
-    label: "{{ item.item.value.name }}"
-  failed_when: false
-
-- name: Fail if NodeProfile lookup returned unexpected errors
-  ansible.builtin.fail:
-    msg: >-
-      Failed to query NodeProfile {{ lookup_name }}: {{ lookup_msg }}
-  when:
-    - lookup_payload.failed | default(item.failed | default(false))
-    - (lookup_msg_text | lower | regex_search('not found')) is none
-  loop: "{{ existing_nodeprofiles.results }}"
-  loop_control:
-    label: "{{ lookup_name }}"
-  vars:
-    lookup_payload: "{{ item.result | default(item) }}"
-    lookup_msg: >-
-      {{
-        lookup_payload.msg
-        | default(
-          lookup_payload.body
-          | default(item.msg | default(item.body | default(item)))
-        )
-      }}
-    lookup_msg_text: "{{ lookup_msg | string }}"
-    lookup_name: "{{ item.item.item.value.name | default(item.item.item | default('unknown')) }}"

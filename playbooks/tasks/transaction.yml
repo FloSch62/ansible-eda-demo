@@ -5,48 +5,28 @@
 
 - name: Assemble transaction change set for NodeProfiles
   ansible.builtin.set_fact:
-    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
-  vars:
-    idx: "{{ loop.index0 }}"
-    lookup_result: "{{ existing_nodeprofiles.results[idx].result | default(existing_nodeprofiles.results[idx]) }}"
-    operation: >-
-      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ nodeprofile_crs.results }}"
   loop_control:
     label: "{{ item.item.item.value.name }}"
 
 - name: Extend transaction change set with TopoNodes
   ansible.builtin.set_fact:
-    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
-  vars:
-    idx: "{{ loop.index0 }}"
-    lookup_result: "{{ existing_toponodes.results[idx].result | default(existing_toponodes.results[idx]) }}"
-    operation: >-
-      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ topo_crs.results }}"
   loop_control:
     label: "{{ item.item.item.name }}"
 
 - name: Extend transaction change set with Interfaces
   ansible.builtin.set_fact:
-    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
-  vars:
-    idx: "{{ loop.index0 }}"
-    lookup_result: "{{ existing_interfaces.results[idx].result | default(existing_interfaces.results[idx]) }}"
-    operation: >-
-      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ interface_crs.results }}"
   loop_control:
     label: "{{ item.item.item.name }}"
 
 - name: Extend transaction change set with TopoLinks
   ansible.builtin.set_fact:
-    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
-  vars:
-    idx: "{{ loop.index0 }}"
-    lookup_result: "{{ existing_topolinks.results[idx].result | default(existing_topolinks.results[idx]) }}"
-    operation: >-
-      {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ topolink_crs.results }}"
   loop_control:
     label: "{{ item.item.item.name }}"
