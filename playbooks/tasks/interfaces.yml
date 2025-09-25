@@ -1,5 +1,5 @@
 ---
-- name: Build Interface custom resources (CR only)
+- name: Launch Interface custom resource build jobs (CR only)
   nokia.eda_interfaces_v1alpha1.interface:
     base_url: "{{ eda_api_url }}"
     auth_token: "{{ eda_auth_token }}"
@@ -18,9 +18,11 @@
   loop: "{{ topolink_interfaces }}"
   loop_control:
     label: "{{ item.name }}"
-  register: interface_crs
+  async: "{{ eda_async_timeout | default(120) | int }}"
+  poll: 0
+  register: interface_cr_jobs
 
-- name: Discover existing Interfaces
+- name: Launch Interface discovery jobs
   nokia.eda_interfaces_v1alpha1.interface:
     base_url: "{{ eda_api_url }}"
     auth_token: "{{ eda_auth_token }}"
@@ -31,16 +33,53 @@
   loop: "{{ topolink_interfaces }}"
   loop_control:
     label: "{{ item.name }}"
+  async: "{{ eda_async_timeout | default(120) | int }}"
+  poll: 0
+  register: existing_interface_jobs
+  failed_when: false
+
+- name: Wait for Interface custom resource builds to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  register: interface_crs
+  until: interface_crs.finished
+  retries: "{{ eda_async_retries | default(120) | int }}"
+  delay: "{{ eda_async_delay | default(1) | int }}"
+  loop: "{{ interface_cr_jobs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Wait for Interface discovery jobs to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
   register: existing_interfaces
+  until: existing_interfaces.finished
+  retries: "{{ eda_async_retries | default(120) | int }}"
+  delay: "{{ eda_async_delay | default(1) | int }}"
+  loop: "{{ existing_interface_jobs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
   failed_when: false
 
 - name: Fail if Interface lookup returned unexpected errors
   ansible.builtin.fail:
     msg: >-
-      Failed to query Interface {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+      Failed to query Interface {{ lookup_name }}: {{ lookup_msg }}
   when:
-    - item.failed | default(false)
-    - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+    - lookup_payload.failed | default(item.failed | default(false))
+    - (lookup_msg_text | lower | regex_search('not found')) is none
   loop: "{{ existing_interfaces.results }}"
   loop_control:
-    label: "{{ item.item.name | default(item.item | default('unknown')) }}"
+    label: "{{ lookup_name }}"
+  vars:
+    lookup_payload: "{{ item.result | default(item) }}"
+    lookup_msg: >-
+      {{
+        lookup_payload.msg
+        | default(
+          lookup_payload.body
+          | default(item.msg | default(item.body | default(item)))
+        )
+      }}
+    lookup_msg_text: "{{ lookup_msg | string }}"
+    lookup_name: "{{ item.item.item.name | default(item.item.item | default('unknown')) }}"
