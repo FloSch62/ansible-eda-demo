@@ -51,6 +51,36 @@
   loop_control:
     label: "{{ item.item.item.name }}"
 
+- name: Submit dry run transaction for NodeProfiles, TopoNodes, Interfaces, and TopoLinks
+  nokia.eda_core_v1.transaction.v2.transaction:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    description: "{{ transaction_description }} (dry run)"
+    dryRun: true
+    resultType: normal
+    retain: true
+    crs: "{{ transaction_crs }}"
+  register: transaction_dry_run
+
+- name: Display dry run transaction identifier
+  ansible.builtin.debug:
+    msg: "Submitted dry run transaction {{ transaction_dry_run.result.id }} for {{ transaction_crs | length }} resources"
+
+- name: Wait for dry run execution result
+  nokia.eda_core_v1.transaction.v2.result.execution:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    transactionId: "{{ transaction_dry_run.result.id }}"
+    waitForComplete: true
+    failOnErrors: true
+  register: transaction_dry_run_execution
+
+- name: Summarize dry run outcome
+  ansible.builtin.debug:
+    msg: "{{ transaction_dry_run_execution.result.summary | default(transaction_dry_run_execution.result, true) }}"
+
 - name: Submit transaction for NodeProfiles, TopoNodes, Interfaces, and TopoLinks
   nokia.eda_core_v1.transaction.v2.transaction:
     base_url: "{{ eda_api_url }}"
@@ -62,10 +92,12 @@
     retain: true
     crs: "{{ transaction_crs }}"
   register: transaction
+  when: transaction_dry_run_execution is success
 
 - name: Display transaction identifier
   ansible.builtin.debug:
     msg: "Submitted transaction {{ transaction.result.id }} for {{ transaction_crs | length }} resources"
+  when: transaction_dry_run_execution is success
 
 - name: Wait for transaction execution result
   nokia.eda_core_v1.transaction.v2.result.execution:
@@ -76,7 +108,9 @@
     waitForComplete: true
     failOnErrors: true
   register: transaction_execution
+  when: transaction_dry_run_execution is success
 
 - name: Summarize transaction outcome
   ansible.builtin.debug:
     msg: "{{ transaction_execution.result.summary | default(transaction_execution.result, true) }}"
+  when: transaction_dry_run_execution is success
