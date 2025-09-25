@@ -1,0 +1,19 @@
+all:
+  vars:
+    eda_api_url: "https://100.82.85.163"
+    eda_namespace: "eda"
+    eda_username: "admin"
+    eda_password: "admin"
+    client_id: "eda"
+    client_secret: null # leave null to auto-discover via Keycloak admin API when defaults are in place
+    tls_skip_verify: true
+    keycloak_url: "/core/httpproxy/v1/keycloak"
+    keycloak_admin_realm: "master"
+    keycloak_client_id: "admin-cli"
+    keycloak_username: "admin"
+    keycloak_password: "admin"
+    keycloak_eda_realm: "eda"
+    transaction_description: "Demo: create 5 TopoNodes (2 spines, 3 leaves)"
+  hosts:
+    localhost:
+      ansible_connection: local

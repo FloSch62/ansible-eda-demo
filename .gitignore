@@ -1,0 +1,3 @@
+# Ignore reference collections checked out alongside the demo
+ansible-collections/
+.venv/

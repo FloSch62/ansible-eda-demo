@@ -1,0 +1,38 @@
+---
+# NodeProfiles used by the demo. Adjust the spec blocks to align with your environment
+# (for example, change the YANG bundle URL or onboarding credentials).
+nodeprofiles:
+  spine:
+    name: demo-spine-profile
+    spec:
+      annotate: false
+      nodeUser: admin
+      onboardingUsername: admin
+      onboardingPassword: NokiaSrl1!
+      operatingSystem: srl
+      version: "24.10.1"
+      versionMatch: v24\.10\.1.*
+      versionPath: .system.information.version
+      imagePullSecret: core
+      images:
+        - image: eda-system/srlimages/srlinux-24.10.1-492
+          imageMd5: eda-system/srlimages/srlinux-24.10.1-492-md5
+      containerImage: ghcr.io/nokia/srlinux:24.10.1-492
+      yang: "https://100.82.85.163/core/schemaprofiles/srlinux-24.10.1.zip"
+  leaf:
+    name: demo-leaf-profile
+    spec:
+      annotate: false
+      nodeUser: admin
+      onboardingUsername: admin
+      onboardingPassword: NokiaSrl1!
+      operatingSystem: srl
+      version: "24.10.1"
+      versionMatch: v24\.10\.1.*
+      versionPath: .system.information.version
+      imagePullSecret: core
+      images:
+        - image: eda-system/srlimages/srlinux-24.10.1-492
+          imageMd5: eda-system/srlimages/srlinux-24.10.1-492-md5
+      containerImage: ghcr.io/nokia/srlinux:24.10.1-492
+      yang: "https://100.82.85.163/core/schemaprofiles/srlinux-24.10.1.zip"

@@ -1,0 +1,34 @@
+---
+# Demo inventory of TopoNodes to be staged in a single EDA transaction.
+# NodeProfiles referenced below default to the entries defined in nodeprofiles.yml.
+toponodes:
+  - name: demo-spine-1
+    role: spine
+    node_profile: "{{ nodeprofiles.spine.name }}"
+    platform: "7220 IXR-D3L"
+    version: "24.10.1"
+    production_ipv4: "198.51.100.11"
+  - name: demo-spine-2
+    role: spine
+    node_profile: "{{ nodeprofiles.spine.name }}"
+    platform: "7220 IXR-D3L"
+    version: "24.10.1"
+    production_ipv4: "198.51.100.12"
+  - name: demo-leaf-1
+    role: leaf
+    node_profile: "{{ nodeprofiles.leaf.name }}"
+    platform: "7220 IXR-D2"
+    version: "24.10.1"
+    production_ipv4: "198.51.100.21"
+  - name: demo-leaf-2
+    role: leaf
+    node_profile: "{{ nodeprofiles.leaf.name }}"
+    platform: "7220 IXR-D2"
+    version: "24.10.1"
+    production_ipv4: "198.51.100.22"
+  - name: demo-leaf-3
+    role: leaf
+    node_profile: "{{ nodeprofiles.leaf.name }}"
+    platform: "7220 IXR-D2"
+    version: "24.10.1"
+    production_ipv4: "198.51.100.23"

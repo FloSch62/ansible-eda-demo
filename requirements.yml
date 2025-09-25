@@ -1,0 +1,11 @@
+---
+collections:
+  - name: nokia.eda_utils_v1
+    source: ../ansible-collections/utils_v1
+    type: dir
+  - name: nokia.eda_core_v1
+    source: ../ansible-collections/core_v1
+    type: dir
+  - name: nokia.eda_apps_core_v1
+    source: ../ansible-collections/apps/core_v1
+    type: dir
