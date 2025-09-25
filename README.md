@@ -7,29 +7,36 @@ This demo provisions a pair of NodeProfiles (spine/leaf), five Nokia EDA TopoNod
 ```
 ansible-eda-demo/
 ├── ansible.cfg
-├── inventory.yaml
+├── inventories/
+│   └── demo/
+│       └── inventory.yaml
 ├── playbooks/
 │   └── create-toponodes.yaml
 ├── pyproject.toml
 ├── requirements.yml
 └── vars/
-    ├── nodeprofiles.yml
-    ├── toponodes.yml
-    └── topolinks.yml
+    ├── fabrics/
+    ├── services/
+    └── topology/
+        ├── nodeprofiles.yml
+        ├── toponodes.yml
+        └── topolinks.yml
 ```
 
 - `pyproject.toml` pins the Python packages needed by the Nokia EDA collections.
-- `requirements.yml` pulls in the `nokia.eda_utils_v1`, `nokia.eda_core_v1`, and `nokia.eda_apps_core_v1` collections.
-- `inventory.yaml` stores connection/authentication variables (EDA credentials plus the Keycloak realms/client configuration used by the token helper). Verify the defaults for credentials, API URL, or TLS behaviour before running the demo.
-- `vars/nodeprofiles.yml` defines the NodeProfiles that will be ensured present (adjust the YANG bundle URL, onboarding credentials, or OS version to match your setup).
-- `vars/toponodes.yml` lists the five TopoNodes created by the demo; adjust platforms, versions, or IPs if desired.
-- `vars/topolinks.yml` describes the interface resources and TopoLinks that interconnect the nodes. Tune interface names, speeds, or link memberships to reflect your lab.
+- `requirements.yml` pulls in the `nokia.eda_utils_v1`, `nokia.eda_core_v1`, `nokia.eda_apps_core_v1`, and `nokia.eda_interfaces_v1alpha1` collections.
+- `inventories/README.md` describes how to manage multiple environment inventories.
+- `inventories/demo/inventory.yaml` stores connection/authentication variables (EDA credentials plus the Keycloak realms/client configuration used by the token helper). Verify the defaults for credentials, API URL, or TLS behaviour before running the demo.
+- `vars/README.md` explains how variable domains are structured for topology, fabrics, and services.
+- `vars/topology/nodeprofiles.yml` defines the NodeProfiles that will be ensured present (adjust the YANG bundle URL, onboarding credentials, or OS version to match your setup).
+- `vars/topology/toponodes.yml` lists the five TopoNodes created by the demo; adjust platforms, versions, or IPs if desired.
+- `vars/topology/topolinks.yml` describes the interface resources and TopoLinks that interconnect the nodes. Tune interface names, speeds, or link memberships to reflect your lab.
 - `playbooks/create-toponodes.yaml` acquires an access token, upserts the NodeProfiles, builds the TopoNode CR payloads (using `state=cronly`), and submits them in one transaction before waiting for the execution result.
 
 ## Prerequisites
 
 1. [`uv`](https://docs.astral.sh/uv/getting-started/installation/) installed on your workstation.
-2. Reachability to the EDA API (default URL in `inventory.yaml` is `https://100.82.85.163:9443`).
+2. Reachability to the EDA API (default URL in `inventories/demo/inventory.yaml` is `https://100.82.85.163:9443`).
 3. The reference `ansible-collections` repository available as a sibling directory (the included `requirements.yml` installs the collections directly from those sources).
 4. Valid EDA credentials. The playbook defaults to the platform's factory credentials (`admin` / `admin`) and will auto-discover the `client_secret` via Keycloak when it is omitted.
 
@@ -45,8 +52,8 @@ uv sync
 #    reference ansible-collections repo so the local sources in requirements.yml resolve)
 uv run ansible-galaxy collection install -r requirements.yml
 
-# 3. Review vars/nodeprofiles.yml, vars/toponodes.yml, vars/topolinks.yml, and inventory.yaml to ensure the data matches your environment
-$EDITOR inventory.yaml vars/nodeprofiles.yml vars/toponodes.yml vars/topolinks.yml
+# 3. Review vars/topology/nodeprofiles.yml, vars/topology/toponodes.yml, vars/topology/topolinks.yml, and inventories/demo/inventory.yaml to ensure the data matches your environment
+$EDITOR inventories/demo/inventory.yaml vars/topology/nodeprofiles.yml vars/topology/toponodes.yml vars/topology/topolinks.yml
 
 # 4. Execute the demo playbook
 uv run ansible-playbook playbooks/create-toponodes.yaml
@@ -73,12 +80,13 @@ Both commands use the configuration files in the project root (`.ansible-lint` a
 
 ## Customisation
 
-- Toggle `tls_skip_verify` in `inventory.yaml` if your EDA endpoint presents a trusted certificate.
-- Edit `vars/nodeprofiles.yml` to change credential defaults, OS versions, or the YANG bundle URL.
-- Edit `vars/toponodes.yml` to change the names, roles, platforms, software versions, or production IP addresses.
-- Update the Keycloak settings in `inventory.yaml` (`keycloak_*` variables) if your realm, URL path, or admin credentials differ from the defaults.
+- Toggle `tls_skip_verify` in `inventories/demo/inventory.yaml` if your EDA endpoint presents a trusted certificate.
+- Edit `vars/topology/nodeprofiles.yml` to change credential defaults, OS versions, or the YANG bundle URL.
+- Edit `vars/topology/toponodes.yml` to change the names, roles, platforms, software versions, or production IP addresses.
+- Edit `vars/topology/topolinks.yml` to update link speeds, interface mappings, or adjacency types.
+- Update the Keycloak settings in `inventories/demo/inventory.yaml` (`keycloak_*` variables) if your realm, URL path, or admin credentials differ from the defaults.
 - Switch the transaction to a dry run by temporarily setting `dryRun: true` inside `playbooks/create-toponodes.yaml`.
 
 ## Cleanup
 
-To roll back the created TopoNodes, rerun the playbook after removing or commenting the relevant entries in `vars/toponodes.yml`, or submit a new transaction with `state: absent` changes by adapting the playbook.
+To roll back the created TopoNodes, rerun the playbook after removing or commenting the relevant entries in `vars/topology/toponodes.yml`, or submit a new transaction with `state: absent` changes by adapting the playbook.

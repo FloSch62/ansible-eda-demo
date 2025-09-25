@@ -3,9 +3,9 @@
   hosts: localhost
   gather_facts: false
   vars_files:
-    - ../vars/nodeprofiles.yml
-    - ../vars/toponodes.yml
-    - ../vars/topolinks.yml
+    - ../vars/topology/nodeprofiles.yml
+    - ../vars/topology/toponodes.yml
+    - ../vars/topology/topolinks.yml
   pre_tasks:
     - name: Ensure NodeProfile specs contain required keys
       ansible.builtin.assert:
@@ -25,8 +25,8 @@
           - nodeprofiles.leaf.spec.version is defined
           - nodeprofiles.leaf.spec.yang is defined
         fail_msg: >-
-          Populate nodeprofiles.yml with valid spec data (nodeUser, onboarding credentials, operatingSystem,
-          version, and YANG bundle URL) before running the demo.
+          Populate vars/topology/nodeprofiles.yml with valid spec data (nodeUser, onboarding credentials,
+          operatingSystem, version, and YANG bundle URL) before running the demo.
 
     - name: Ensure TopoLink inputs are present
       ansible.builtin.assert:
@@ -34,7 +34,7 @@
           - topolink_interfaces | length > 0
           - topolinks | length > 0
         fail_msg: >-
-          Populate topolinks.yml with interface definitions and logical links before running the demo.
+          Populate vars/topology/topolinks.yml with interface definitions and logical links before running the demo.
 
   tasks:
     - name: Retrieve EDA access token
