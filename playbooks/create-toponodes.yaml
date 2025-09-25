@@ -44,12 +44,12 @@
       register: token
       no_log: true
 
-    - name: Ensure NodeProfiles exist
+    - name: Build NodeProfile custom resources (CR only)
       nokia.eda_apps_core_v1.nodeprofile:
         base_url: "{{ eda_api_url }}"
         auth_token: "Bearer {{ token.result.access_token }}"
         tls_skip_verify: "{{ tls_skip_verify | bool }}"
-        state: present
+        state: cronly
         resource:
           metadata:
             namespace: "{{ eda_namespace }}"
@@ -60,6 +60,32 @@
       loop: "{{ nodeprofiles | dict2items }}"
       loop_control:
         label: "{{ item.value.name }}"
+      register: nodeprofile_crs
+
+    - name: Discover existing NodeProfiles
+      nokia.eda_apps_core_v1.nodeprofile:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "Bearer {{ token.result.access_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        state: query
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.value.name }}"
+      loop: "{{ nodeprofiles | dict2items }}"
+      loop_control:
+        label: "{{ item.value.name }}"
+      register: existing_nodeprofiles
+      failed_when: false
+
+    - name: Fail if NodeProfile lookup returned unexpected errors
+      ansible.builtin.fail:
+        msg: >-
+          Failed to query NodeProfile {{ item.item.value.name }}: {{ item.msg | default(item.body | default(item)) }}
+      when:
+        - item.failed | default(false)
+        - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+      loop: "{{ existing_nodeprofiles.results }}"
+      loop_control:
+        label: "{{ item.item.value.name | default(item.item | default('unknown')) }}"
 
     - name: Build TopoNode custom resources (CR only)
       # Use state=cronly to collect CR payloads without altering the live API yet
@@ -112,7 +138,23 @@
       loop_control:
         label: "{{ item.item.name | default(item.item | default('unknown')) }}"
 
-    - name: Assemble transaction change set
+    - name: Initialize transaction change set
+      ansible.builtin.set_fact:
+        transaction_crs: []
+
+    - name: Assemble transaction change set for NodeProfiles
+      ansible.builtin.set_fact:
+        transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+      vars:
+        idx: "{{ loop.index0 }}"
+        lookup_result: "{{ existing_nodeprofiles.results[idx] }}"
+        operation: >-
+          {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
+      loop: "{{ nodeprofile_crs.results }}"
+      loop_control:
+        label: "{{ item.item.value.name }}"
+
+    - name: Extend transaction change set with TopoNodes
       ansible.builtin.set_fact:
         transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
       vars:
@@ -124,7 +166,7 @@
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: Submit transaction for TopoNodes
+    - name: Submit transaction for NodeProfiles and TopoNodes
       nokia.eda_core_v1.transaction.v2.transaction:
         base_url: "{{ eda_api_url }}"
         auth_token: "Bearer {{ token.result.access_token }}"
@@ -138,7 +180,7 @@
 
     - name: Display transaction identifier
       ansible.builtin.debug:
-        msg: "Submitted transaction {{ transaction.result.id }} for {{ transaction_crs | length }} TopoNodes"
+        msg: "Submitted transaction {{ transaction.result.id }} for {{ transaction_crs | length }} resources"
 
     - name: Wait for transaction execution result
       nokia.eda_core_v1.transaction.v2.result.execution:
