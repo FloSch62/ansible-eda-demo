@@ -87,14 +87,44 @@
         label: "{{ item.name }}"
       register: topo_crs
 
+    - name: Discover existing TopoNodes
+      nokia.eda_apps_core_v1.toponode:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "Bearer {{ token.result.access_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        state: query
+        namespace: "{{ eda_namespace }}"
+        name: "{{ item.name }}"
+      loop: "{{ toponodes }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: existing_toponodes
+      failed_when: false
+
+    - name: Fail if TopoNode lookup returned unexpected errors
+      ansible.builtin.fail:
+        msg: >-
+          Failed to query TopoNode {{ item.item.name }}: {{ item.msg | default(item.body | default(item)) }}
+      when:
+        - item.failed | default(false)
+        - (item.msg | default(item.body | default('')) | lower | regex_search('not found')) is none
+      loop: "{{ existing_toponodes.results }}"
+      loop_control:
+        label: "{{ item.item.name | default(item.item | default('unknown')) }}"
+
     - name: Assemble transaction change set
       ansible.builtin.set_fact:
-        transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': {'create': {'value': item.result}}} ] }}"
+        transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { operation: {'value': item.result}}} ] }}"
+      vars:
+        idx: "{{ loop.index0 }}"
+        lookup_result: "{{ existing_toponodes.results[idx] }}"
+        operation: >-
+          {{ 'create' if lookup_result.failed | default(false) else 'replace' }}
       loop: "{{ topo_crs.results }}"
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: Submit transaction to create TopoNodes
+    - name: Submit transaction for TopoNodes
       nokia.eda_core_v1.transaction.v2.transaction:
         base_url: "{{ eda_api_url }}"
         auth_token: "Bearer {{ token.result.access_token }}"
