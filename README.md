@@ -65,6 +65,20 @@ $EDITOR inventories/demo/inventory.yaml vars/topology/nodeprofiles.yml vars/topo
 uv run ansible-playbook playbooks/deploy-environment.yaml
 ```
 
+### Using NetBox as the topology source
+
+To drive the demo from NetBox data instead of the local YAML files:
+
+1. Populate NetBox with the demo devices, interfaces, and cables (for example with `tools/populate_netbox_topology.py`).
+2. Set `topology_source: netbox` in `inventories/demo/inventory.yaml` or pass `-e topology_source=netbox` on the command line.
+3. Provide NetBox connectivity details via inventory or extra vars:
+   - `netbox_api_endpoint`: Base URL of the NetBox instance (e.g. `http://100.82.85.165/`).
+   - `netbox_token`: API token with read access (defaults to the `NETBOX_TOKEN` environment variable).
+   - `netbox_topology_tag`: Tag that identifies the demo objects (defaults to `eda-demo-topology`).
+4. Run the playbook as usual. The pre-tasks will use the `netbox.netbox.nb_lookup` lookup plugin to build NodeProfiles, TopoNodes, interfaces, and links before submitting the Nokia EDA transaction.
+
+Switch `topology_source` back to `local` to return to the repository-provided variables without touching NetBox.
+
 The playbook prints the transaction identifier and waits for completion (`failOnErrors: true`). If the transaction succeeds, you will see a summary of the applied changes.
 
 ## Linting

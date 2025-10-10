@@ -7,6 +7,81 @@
     - ../vars/topology/toponodes.yml
     - ../vars/topology/topolinks.yml
   pre_tasks:
+    - name: Optionally harvest topology data from NetBox
+      when: (topology_source | default('local')) | lower == 'netbox'
+      block:
+        - name: Validate NetBox lookup configuration
+          ansible.builtin.assert:
+            that:
+              - netbox_api_endpoint is defined
+              - netbox_api_endpoint | length > 0
+              - netbox_token is defined
+              - netbox_token | length > 0
+              - netbox_topology_tag is defined
+              - netbox_topology_tag | length > 0
+            fail_msg: >-
+              Provide netbox_api_endpoint, netbox_token, and netbox_topology_tag when
+              topology_source is set to "netbox".
+
+        - name: Fetch tagged devices from NetBox
+          ansible.builtin.set_fact:
+            netbox_devices: >-
+              {{ lookup('netbox.netbox.nb_lookup', 'devices',
+                        api_endpoint=netbox_api_endpoint,
+                        token=netbox_token,
+                        validate_certs=netbox_validate_certs | default(true),
+                        api_filter='tag=' ~ netbox_topology_tag) }}
+
+        - name: Fetch tagged interfaces from NetBox
+          ansible.builtin.set_fact:
+            netbox_interfaces: >-
+              {{ lookup('netbox.netbox.nb_lookup', 'interfaces',
+                        api_endpoint=netbox_api_endpoint,
+                        token=netbox_token,
+                        validate_certs=netbox_validate_certs | default(true),
+                        api_filter='tag=' ~ netbox_topology_tag) }}
+
+        - name: Fetch tagged cables from NetBox
+          ansible.builtin.set_fact:
+            netbox_cables: >-
+              {{ lookup('netbox.netbox.nb_lookup', 'cables',
+                        api_endpoint=netbox_api_endpoint,
+                        token=netbox_token,
+                        validate_certs=netbox_validate_certs | default(true),
+                        api_filter='tag=' ~ netbox_topology_tag) }}
+
+        - name: Normalise NetBox lookup results
+          ansible.builtin.set_fact:
+            netbox_device_records: "{{ netbox_devices | default([]) | map(attribute='value') | list }}"
+            netbox_interface_records: "{{ netbox_interfaces | default([]) | map(attribute='value') | list }}"
+            netbox_cable_records: "{{ netbox_cables | default([]) | map(attribute='value') | list }}"
+
+        - name: Ensure NetBox returned topology objects
+          ansible.builtin.assert:
+            that:
+              - netbox_device_records | length > 0
+            fail_msg: >-
+              No NetBox devices matched tag "{{ netbox_topology_tag }}". Update the tag or
+              populate NetBox before re-running the playbook.
+
+        - name: Render topology structures from NetBox data
+          ansible.builtin.set_fact:
+            netbox_topology: >-
+              {{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/netbox_topology.json.j2') | from_json }}
+
+        - name: Override topology variables with NetBox content
+          ansible.builtin.set_fact:
+            nodeprofiles: "{{ netbox_topology.nodeprofiles }}"
+            toponodes: "{{ netbox_topology.toponodes }}"
+            topolink_interfaces: "{{ netbox_topology.topolink_interfaces }}"
+            topolinks: "{{ netbox_topology.topolinks }}"
+
+        - name: Note NetBox topology source
+          ansible.builtin.debug:
+            msg: >-
+              Loaded {{ toponodes | length }} nodes and {{ topolinks | length }} links from
+              NetBox tag "{{ netbox_topology_tag }}".
+
     - name: Ensure NodeProfile specs contain required keys
       ansible.builtin.assert:
         that:

@@ -15,6 +15,11 @@ all:
     keycloak_password: "admin"
     keycloak_eda_realm: "eda"
     transaction_description: "Demo: create NodeProfiles, 5 TopoNodes, interfaces, and TopoLinks"
+    topology_source: netbox # set to "netbox" to pull topology data from NetBox
+    netbox_api_endpoint: "https://your-netbox-fqdn.example.com"
+    netbox_topology_tag: "eda-demo-topology"
+    netbox_token: "0123456789abcdef0123456789abcdef01234567"
+    netbox_validate_certs: false
   hosts:
     localhost:
       ansible_connection: local

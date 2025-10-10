@@ -1,0 +1,110 @@
+{# Build NetBox-derived topology structures using namespaces so loop mutations persist. #}
+{% set ns = namespace(
+  nodeprofiles = {},
+  interface_lookup = {},
+  interface_by_id = {},
+  topolink_interfaces = [],
+  topolinks = [],
+  toponodes = []
+) %}
+
+{# Collect NodeProfile mappings #}
+{% for device in netbox_device_records | default([]) %}
+  {% set ctx = device['config_context'] if 'config_context' in device and device['config_context'] else None %}
+  {% set profile = ctx['node_profile'] if ctx and 'node_profile' in ctx else None %}
+  {% if profile %}
+    {% set role_slug = device['role']['slug'] %}
+    {% set ns.nodeprofiles = ns.nodeprofiles | combine({ role_slug: {
+      'name': profile['name'],
+      'spec': profile.get('spec', {})
+    } }) %}
+  {% endif %}
+{% endfor %}
+
+{# Normalise interfaces into lookup tables and TopoLink interface definitions #}
+{% for iface in netbox_interface_records | default([]) %}
+  {% if 'device' in iface %}
+    {% set device_name = iface['device']['name'] %}
+    {% set iface_name = iface['name'] %}
+    {% set resource_name = (device_name ~ '-' ~ iface_name.replace('/', '-')) %}
+    {% set ns.interface_lookup = ns.interface_lookup | combine({ (device_name ~ '::' ~ iface_name): resource_name }) %}
+    {% set ns.interface_by_id = ns.interface_by_id | combine({ (iface['id'] | string): iface }) %}
+    {% set iface_entry = {
+      'name': resource_name,
+      'description': iface.get('description'),
+      'members': [
+        {
+          'node': device_name,
+          'interface': iface_name
+        }
+      ]
+    } %}
+    {% set ns.topolink_interfaces = ns.topolink_interfaces + [iface_entry] %}
+  {% endif %}
+{% endfor %}
+
+{% set speed_map = {
+  '100gbase-x-qsfp28': '100G',
+  '40gbase-qsfpp': '40G',
+  '25gbase-x-sfp28': '25G',
+  '10gbase-x-sfpp': '10G'
+} %}
+
+{# Build TopoLinks from cables #}
+{% for cable in netbox_cable_records | default([]) %}
+  {% set a_terms = cable.get('a_terminations', []) %}
+  {% set b_terms = cable.get('b_terminations', []) %}
+  {% if a_terms and b_terms %}
+    {% set a_iface = ns.interface_by_id.get(a_terms[0]['id'] | string) %}
+    {% set b_iface = ns.interface_by_id.get(b_terms[0]['id'] | string) %}
+    {% if a_iface and b_iface %}
+      {% set speed = speed_map.get(a_iface.get('type', {}).get('value'), 'auto') %}
+      {% set local_key = a_iface['device']['name'] ~ '::' ~ a_iface['name'] %}
+      {% set remote_key = b_iface['device']['name'] ~ '::' ~ b_iface['name'] %}
+      {% set link_entry = {
+        'name': cable.get('label') or cable.get('display'),
+        'links': [
+          {
+            'type': 'interSwitch',
+            'speed': speed,
+            'local': {
+              'node': a_iface['device']['name'],
+              'interface': a_iface['name'],
+              'interfaceResource': ns.interface_lookup.get(local_key)
+            },
+            'remote': {
+              'node': b_iface['device']['name'],
+              'interface': b_iface['name'],
+              'interfaceResource': ns.interface_lookup.get(remote_key)
+            }
+          }
+        ]
+      } %}
+      {% set ns.topolinks = ns.topolinks + [link_entry] %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+{# Assemble TopoNode list #}
+{% for device in netbox_device_records | default([]) %}
+  {% set ctx = device['config_context'] if 'config_context' in device and device['config_context'] else None %}
+  {% set profile = ctx['node_profile'] if ctx and 'node_profile' in ctx else None %}
+  {% set version = profile['spec']['version'] if profile and 'spec' in profile and 'version' in profile['spec'] else None %}
+  {% set prod_ip = device['primary_ip4']['address'].split('/') | first if device.get('primary_ip4') else None %}
+  {% set node_entry = {
+    'name': device['name'],
+    'role': device['role']['slug'],
+    'node_profile': profile['name'] if profile else None,
+    'platform': device['device_type']['model'],
+    'version': version,
+    'production_ipv4': prod_ip
+  } %}
+  {% set ns.toponodes = ns.toponodes + [node_entry] %}
+{% endfor %}
+
+{
+  "nodeprofiles": {{ ns.nodeprofiles | to_nice_json(indent=2) }},
+  "toponodes": {{ ns.toponodes | to_nice_json(indent=2) }},
+  "topolink_interfaces": {{ ns.topolink_interfaces | to_nice_json(indent=2) }},
+  "topolinks": {{ ns.topolinks | to_nice_json(indent=2) }}
+}
