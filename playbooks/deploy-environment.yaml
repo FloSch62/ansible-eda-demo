@@ -102,6 +102,9 @@
         fail_msg: >-
           Populate vars/topology/nodeprofiles.yml with valid spec data (nodeUser, onboarding credentials,
           operatingSystem, version, and YANG bundle URL) before running the demo.
+      when:
+        - nodeprofiles.spine is defined
+        - nodeprofiles.leaf is defined
 
     - name: Ensure TopoLink inputs are present
       ansible.builtin.assert:

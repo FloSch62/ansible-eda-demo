@@ -10,6 +10,7 @@ nodeprofiles:
       onboardingUsername: admin
       onboardingPassword: NokiaSrl1!
       operatingSystem: srl
+      onBoarded: false
       version: "24.10.1"
       versionMatch: v24\.10\.1.*
       versionPath: .system.information.version
@@ -18,7 +19,8 @@ nodeprofiles:
         - image: eda-system/srlimages/srlinux-24.10.1-492
           imageMd5: eda-system/srlimages/srlinux-24.10.1-492-md5
       containerImage: ghcr.io/nokia/srlinux:24.10.1-492
-      yang: "https://100.82.85.163/core/schemaprofiles/srlinux-24.10.1.zip"
+      yang: >-
+        https://eda-asvr.eda-system.svc/eda-system/schemaprofiles/srlinux-ghcr-24.10.1/srlinux-24.10.1.zip
   leaf:
     name: demo-leaf-profile
     spec:
@@ -27,6 +29,7 @@ nodeprofiles:
       onboardingUsername: admin
       onboardingPassword: NokiaSrl1!
       operatingSystem: srl
+      onBoarded: false
       version: "24.10.1"
       versionMatch: v24\.10\.1.*
       versionPath: .system.information.version
@@ -35,4 +38,5 @@ nodeprofiles:
         - image: eda-system/srlimages/srlinux-24.10.1-492
           imageMd5: eda-system/srlimages/srlinux-24.10.1-492-md5
       containerImage: ghcr.io/nokia/srlinux:24.10.1-492
-      yang: "https://100.82.85.163/core/schemaprofiles/srlinux-24.10.1.zip"
+      yang: >-
+        https://eda-asvr.eda-system.svc/eda-system/schemaprofiles/srlinux-ghcr-24.10.1/srlinux-24.10.1.zip

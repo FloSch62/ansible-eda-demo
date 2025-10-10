@@ -95,6 +95,38 @@ def ensure_config_context(nb: pynetbox.api.Api, *, name: str, data: Dict[str, An
     return nb.extras.config_contexts.create(payload)
 
 
+def ensure_device_custom_field(
+    nb: pynetbox.api.Api,
+    *,
+    name: str,
+    field_type: str,
+    label: str | None = None,
+    description: str | None = None,
+    default: Any | None = None,
+) -> Any:
+    """Ensure a custom field exists on dcim.device objects."""
+
+    cf = nb.extras.custom_fields.get(name=name)
+    payload: Dict[str, Any] = {
+        "name": name,
+        "type": field_type,
+        "content_types": ["dcim.device"],
+        "object_types": ["dcim.device"],
+        "required": False,
+    }
+    if label is not None:
+        payload["label"] = label
+    if description is not None:
+        payload["description"] = description
+    if default is not None:
+        payload["default"] = default
+
+    if cf:
+        cf.update(payload)
+        return cf
+    return nb.extras.custom_fields.create(payload)
+
+
 def ensure_device(
     nb: pynetbox.api.Api,
     *,
@@ -104,6 +136,7 @@ def ensure_device(
     site_id: int,
     platform_id: int | None,
     tag_ids: Iterable[int],
+    custom_fields: Dict[str, Any] | None = None,
 ) -> Any:
     device = nb.dcim.devices.get(name=name)
     payload: Dict[str, Any] = {
@@ -116,9 +149,11 @@ def ensure_device(
     }
     if platform_id:
         payload["platform"] = platform_id
+    if custom_fields:
+        payload["custom_fields"] = custom_fields
     if device:
         device.update(payload)
-        return device
+        return nb.dcim.devices.get(name=name)
     return nb.dcim.devices.create(payload)
 
 
@@ -223,6 +258,30 @@ def main() -> int:
     toponodes = load_yaml(BASE_DIR / "vars/topology/toponodes.yml")["toponodes"]
     topology_links = load_yaml(BASE_DIR / "vars/topology/topolinks.yml")
 
+    # Ensure device custom fields required by the NetBox integration exist.
+    ensure_device_custom_field(
+        nb,
+        name="operatingSystem",
+        field_type="text",
+        label="Operating System",
+        description="Operating system reported to Nokia EDA",
+    )
+    ensure_device_custom_field(
+        nb,
+        name="version",
+        field_type="text",
+        label="Software Version",
+        description="Software version reported to Nokia EDA",
+    )
+    ensure_device_custom_field(
+        nb,
+        name="onBoarded",
+        field_type="boolean",
+        label="On-boarded",
+        description="Whether the node has been onboarded into Nokia EDA",
+        default=False,
+    )
+
     # Pre-load manufacturer lookup.
     manufacturer = nb.dcim.manufacturers.get(name="Nokia")
     if not manufacturer:
@@ -274,8 +333,13 @@ def main() -> int:
     # Ensure platforms exist for combinations of platform/version to preserve version metadata.
     platforms: Dict[str, Any] = {}
     for node in toponodes:
-        platform_name = f"{node['platform']} {node['version']}"
-        platforms[platform_name] = ensure_platform(nb, platform_name, manufacturer_id=manufacturer.id)
+        platform_name = node["platform"]
+        if platform_name not in platforms:
+            platforms[platform_name] = ensure_platform(
+                nb,
+                platform_name,
+                manufacturer_id=manufacturer.id,
+            )
 
     # Map to devices.
     devices: Dict[str, Any] = {}
@@ -284,7 +348,20 @@ def main() -> int:
         if not device_type:
             print(f"Device type '{node['platform']}' not found for node '{node['name']}'", file=sys.stderr)
             continue
-        platform_obj = platforms[f"{node['platform']} {node['version']}"]
+        platform_obj = platforms[node["platform"]]
+        profile = nodeprofiles.get(node["role"], {})
+        profile_spec: Dict[str, Any] = profile.get("spec", {})
+        custom_fields_payload: Dict[str, Any] = {}
+        operating_system = profile_spec.get("operatingSystem")
+        if operating_system:
+            custom_fields_payload["operatingSystem"] = operating_system
+        version_value = node.get("version") or profile_spec.get("version")
+        if version_value:
+            custom_fields_payload["version"] = version_value
+        on_boarded = profile_spec.get("onBoarded")
+        if on_boarded is not None:
+            custom_fields_payload["onBoarded"] = bool(on_boarded)
+
         device = ensure_device(
             nb,
             name=node["name"],
@@ -293,6 +370,7 @@ def main() -> int:
             site_id=site.id,
             platform_id=platform_obj.id,
             tag_ids=[tag.id],
+            custom_fields=custom_fields_payload,
         )
         devices[node["name"]] = device
 
