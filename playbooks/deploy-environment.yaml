@@ -5,6 +5,7 @@
   vars_files:
     - ../vars/topology/toponodes.yml
     - ../vars/topology/topolinks.yml
+    - ../vars/fabrics/fabrics.yml
   pre_tasks:
     - name: Optionally harvest topology data from NetBox
       when: (topology_source | default('local')) | lower == 'netbox'
@@ -100,6 +101,9 @@
 
     - name: Build TopoLink resources
       ansible.builtin.import_tasks: tasks/topolinks.yml
+
+    - name: Build Fabric resources
+      ansible.builtin.import_tasks: tasks/fabrics.yml
 
     - name: Submit topology transaction
       ansible.builtin.import_tasks: tasks/transaction.yml

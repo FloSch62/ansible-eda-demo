@@ -1,0 +1,27 @@
+---
+# Fabric resources defined for the demo environment.
+fabrics:
+  - name: demo-fabric
+    namespace: eda
+    labels:
+      demo.nokia.com/source: uv-ansible-toponodes
+    spec:
+      leafs:
+        leafNodeSelector:
+          - eda.nokia.com/role=leaf
+      spines:
+        spineNodeSelector:
+          - eda.nokia.com/role=spine
+      interSwitchLinks:
+        linkSelector:
+          - eda.nokia.com/role=interSwitch
+        unnumbered: IPV6
+        ipMTU: 9200
+      systemPoolIPV4: systemipv4-pool
+      underlayProtocol:
+        protocol:
+          - EBGP
+        bgp:
+          asnPool: asn-pool
+      overlayProtocol:
+        protocol: EBGP
