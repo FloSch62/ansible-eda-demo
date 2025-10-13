@@ -254,7 +254,6 @@ def main() -> int:
 
     nb = pynetbox.api(netbox_url, token=token)
 
-    nodeprofiles = load_yaml(BASE_DIR / "vars/topology/nodeprofiles.yml")["nodeprofiles"]
     toponodes = load_yaml(BASE_DIR / "vars/topology/toponodes.yml")["toponodes"]
     topology_links = load_yaml(BASE_DIR / "vars/topology/topolinks.yml")
 
@@ -280,6 +279,13 @@ def main() -> int:
         label="On-boarded",
         description="Whether the node has been onboarded into Nokia EDA",
         default=False,
+    )
+    ensure_device_custom_field(
+        nb,
+        name="nodeProfile",
+        field_type="text",
+        label="Node Profile",
+        description="Nokia EDA NodeProfile name referenced by the device",
     )
 
     # Pre-load manufacturer lookup.
@@ -309,26 +315,21 @@ def main() -> int:
     for role_name in {node["role"] for node in toponodes}:
         roles[role_name] = ensure_device_role(nb, role_name, role_colors[role_name])
 
-    # Prepare nodeprofile contexts keyed by profile name.
-    profile_contexts: Dict[str, Any] = {}
-    for key, profile in nodeprofiles.items():
-        role = roles.get(key)
-        if not role:
-            print(f"Skipping profile '{key}' because device role '{key}' is missing", file=sys.stderr)
-            continue
-        context_name = profile["name"]
-        context_payload = {
-            "node_profile": {
-                "name": profile["name"],
-                "spec": profile.get("spec", {}),
-            }
-        }
-        profile_contexts[profile["name"]] = ensure_config_context(
-            nb,
-            name=context_name,
-            data=context_payload,
-            role_id=role.id,
+    for role_name, role_obj in roles.items():
+        profile_name = next(
+            (node.get("node_profile") for node in toponodes if node.get("role") == role_name and node.get("node_profile")),
+            None,
         )
+        context_payload: Dict[str, Any] = {}
+        if profile_name:
+            context_payload["node_profile_name"] = profile_name
+        if context_payload:
+            ensure_config_context(
+                nb,
+                name=f"{role_name}-node-profile",
+                data=context_payload,
+                role_id=role_obj.id,
+            )
 
     # Ensure platforms exist for combinations of platform/version to preserve version metadata.
     platforms: Dict[str, Any] = {}
@@ -349,18 +350,19 @@ def main() -> int:
             print(f"Device type '{node['platform']}' not found for node '{node['name']}'", file=sys.stderr)
             continue
         platform_obj = platforms[node["platform"]]
-        profile = nodeprofiles.get(node["role"], {})
-        profile_spec: Dict[str, Any] = profile.get("spec", {})
         custom_fields_payload: Dict[str, Any] = {}
-        operating_system = profile_spec.get("operatingSystem")
+        operating_system = node.get("operating_system") or "srl"
         if operating_system:
             custom_fields_payload["operatingSystem"] = operating_system
-        version_value = node.get("version") or profile_spec.get("version")
+        version_value = node.get("version")
         if version_value:
             custom_fields_payload["version"] = version_value
-        on_boarded = profile_spec.get("onBoarded")
+        on_boarded = node.get("on_boarded")
         if on_boarded is not None:
             custom_fields_payload["onBoarded"] = bool(on_boarded)
+        node_profile_ref = node.get("node_profile")
+        if node_profile_ref:
+            custom_fields_payload["nodeProfile"] = node_profile_ref
 
         device = ensure_device(
             nb,

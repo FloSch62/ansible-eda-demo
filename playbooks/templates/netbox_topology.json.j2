@@ -1,60 +1,11 @@
-{# Build NetBox-derived topology structures using namespaces so loop mutations persist. #}
+{# Build NetBox-derived topology structures with on-the-fly NodeProfile assignments. #}
 {% set ns = namespace(
-  nodeprofiles = {},
-  nodeprofile_assignments = {},
   interface_lookup = {},
   interface_by_id = {},
   topolink_interfaces = [],
   topolinks = [],
   toponodes = []
 ) %}
-
-{# Collect NodeProfile mappings #}
-{% for device in netbox_device_records | default([]) %}
-  {% set ctx = device['config_context'] if 'config_context' in device and device['config_context'] else None %}
-  {% set profile = ctx['node_profile'] if ctx and 'node_profile' in ctx else None %}
-  {% if profile %}
-    {% set role_slug = device['role']['slug'] %}
-    {% set profile_spec = profile.get('spec') | default({}, true) %}
-    {% set merged_spec = profile_spec %}
-    {% set custom_fields = device.get('custom_fields') if device.get('custom_fields') else {} %}
-    {% set operating_system_cf = custom_fields.get('operatingSystem') %}
-    {% set version_cf = custom_fields.get('version') %}
-    {% set onboarded_cf = custom_fields.get('onBoarded') %}
-    {% if operating_system_cf %}
-      {% set merged_spec = merged_spec | combine({'operatingSystem': operating_system_cf}) %}
-    {% endif %}
-    {% if version_cf %}
-      {% set merged_spec = merged_spec | combine({'version': version_cf}) %}
-    {% endif %}
-    {% if onboarded_cf is not none %}
-      {% set merged_spec = merged_spec | combine({'onBoarded': onboarded_cf}) %}
-    {% endif %}
-    {% set version_value = merged_spec.get('version')
-                             | default(device.get('software_version'), true)
-                             | default(custom_fields.get('software_version') if custom_fields else None, true)
-                             | default(ctx.get('software_version') if ctx else None, true)
-                             | default('24.10.1', true) %}
-    {% set version_str = None %}
-    {% if version_value %}
-      {% set version_str = (version_value | string) | trim %}
-      {% set merged_spec = merged_spec | combine({'version': version_str}) %}
-      {% set yang_url = 'https://eda-asvr.eda-system.svc/eda-system/schemaprofiles/srlinux-ghcr-' ~ version_str ~ '/srlinux-' ~ version_str ~ '.zip' %}
-      {% set merged_spec = merged_spec | combine({'yang': yang_url}) %}
-    {% endif %}
-    {% set version_slug = version_str | default('') | regex_replace('[^0-9A-Za-z]+', '-') | trim('-') %}
-    {% set profile_key = role_slug ~ '::' ~ (version_str if version_str else 'default') %}
-    {% set profile_name = profile['name'] %}
-    {% if version_slug %}
-      {% set profile_name = profile['name'] ~ '-' ~ version_slug %}
-    {% endif %}
-    {% set ns.nodeprofiles = ns.nodeprofiles | combine({ profile_key: {
-      'name': profile_name,
-      'spec': merged_spec
-    } }) %}
-    {% set ns.nodeprofile_assignments = ns.nodeprofile_assignments | combine({ device['name']: profile_key }) %}
-  {% endif %}
-{% endfor %}
 
 {# Normalise interfaces into lookup tables and TopoLink interface definitions #}
 {% for iface in netbox_interface_records | default([]) %}
@@ -123,13 +74,29 @@
 {# Assemble TopoNode list #}
 {% for device in netbox_device_records | default([]) %}
   {% set ctx = device['config_context'] if 'config_context' in device and device['config_context'] else None %}
-  {% set role_slug = device['role']['slug'] %}
-  {% set profile_key = ns.nodeprofile_assignments.get(device['name']) %}
-  {% set profile_data = ns.nodeprofiles.get(profile_key, {}) %}
-  {% set profile_spec = profile_data.get('spec', {}) %}
-  {% set prod_ip = device['primary_ip4']['address'].split('/') | first if device.get('primary_ip4') else None %}
-  {% set security_profile = ctx.get('security_profile') if ctx and 'security_profile' in ctx else None %}
   {% set custom_fields = device.get('custom_fields') if device.get('custom_fields') else {} %}
+
+  {% set version_value = custom_fields.get('version')
+                          | default(device.get('software_version'), true)
+                          | default(ctx.get('software_version') if ctx else None, true)
+                          | default('25.7.2', true) %}
+  {% set version_str = (version_value | string) | trim %}
+
+  {% set node_profile_name = None %}
+  {% if ctx and ctx.get('node_profile_name') %}
+    {% set node_profile_name = ctx.get('node_profile_name') %}
+  {% elif ctx and ctx.get('node_profile') and ctx['node_profile'].get('name') %}
+    {% set node_profile_name = ctx['node_profile']['name'] %}
+  {% elif custom_fields.get('nodeProfile') %}
+    {% set node_profile_name = custom_fields.get('nodeProfile') %}
+  {% endif %}
+  {% if not node_profile_name %}
+    {% set node_profile_name = 'srlinux-ghcr-' ~ version_str %}
+  {% elif not node_profile_name.startswith('srlinux-ghcr-') %}
+    {% set node_profile_name = 'srlinux-ghcr-' ~ version_str %}
+  {% endif %}
+
+  {% set security_profile = ctx.get('security_profile') if ctx and 'security_profile' in ctx else None %}
   {% set platform_raw = device.get('device_type', {}).get('model') %}
   {% set platform_clean = platform_raw
                               | default('')
@@ -138,19 +105,17 @@
                               | regex_replace('\\s+\\d+\\.\\d+\\.\\d+.*$', '')
                               | trim
                               | default(platform_raw, true) %}
-  {% set operating_system = custom_fields.get('operatingSystem') | default(profile_spec.get('operatingSystem'), true) | default('srl', true) %}
+  {% set operating_system = custom_fields.get('operatingSystem') | default('srl', true) %}
   {% set on_boarded_cf = custom_fields.get('onBoarded') %}
-  {% set on_boarded = on_boarded_cf if on_boarded_cf is not none else profile_spec.get('onBoarded') %}
-  {% if on_boarded is none %}
-    {% set on_boarded = false %}
-  {% endif %}
-  {% set version = profile_spec.get('version') %}
+  {% set on_boarded = on_boarded_cf if on_boarded_cf is not none else false %}
+  {% set prod_ip = device['primary_ip4']['address'].split('/') | first if device.get('primary_ip4') else None %}
+
   {% set node_entry = {
     'name': device['name'],
-    'role': role_slug,
-    'node_profile': profile_data.get('name'),
+    'role': device['role']['slug'],
+    'node_profile': node_profile_name,
     'platform': platform_clean,
-    'version': version,
+    'version': version_str,
     'production_ipv4': prod_ip,
     'security_profile': security_profile,
     'operating_system': operating_system,
@@ -160,7 +125,6 @@
 {% endfor %}
 
 {
-  "nodeprofiles": {{ ns.nodeprofiles | to_nice_json(indent=2) }},
   "toponodes": {{ ns.toponodes | to_nice_json(indent=2) }},
   "topolink_interfaces": {{ ns.topolink_interfaces | to_nice_json(indent=2) }},
   "topolinks": {{ ns.topolinks | to_nice_json(indent=2) }}

@@ -1,6 +1,6 @@
 # UV-Based Ansible Demo: Create EDA TopoNodes
 
-This demo provisions a pair of NodeProfiles (spine/leaf), five Nokia EDA TopoNodes (2 spines, 3 leaves), the interfaces used to wire the fabric, and the logical TopoLinks between them inside the `eda` namespace. NodeProfiles are created/upserted first and the TopoNodes, Interfaces, and TopoLinks are applied via a single Core transaction. Everything is self-contained, relies on the published Nokia EDA collections, and uses [uv](https://github.com/astral-sh/uv) to manage Python dependencies.
+This demo provisions five Nokia EDA TopoNodes (2 spines, 3 leaves), the interfaces used to wire the fabric, and the logical TopoLinks between them inside the `eda` namespace. TopoNodes, Interfaces, and TopoLinks are applied via a single Core transaction while reusing the stock NodeProfiles that ship with EDA (for example `srlinux-ghcr-25.7.2` and `srlinux-ghcr-25.7.1`). Everything is self-contained, relies on the published Nokia EDA collections, and uses [uv](https://github.com/astral-sh/uv) to manage Python dependencies.
 
 ## Layout
 
@@ -15,7 +15,6 @@ ansible-eda-demo/
 │   └── tasks/
 │       ├── authenticate.yml
 │       ├── interfaces.yml
-│       ├── nodeprofiles.yml
 │       ├── topolinks.yml
 │       ├── toponodes.yml
 │       └── transaction.yml
@@ -25,7 +24,6 @@ ansible-eda-demo/
     ├── fabrics/
     ├── services/
     └── topology/
-        ├── nodeprofiles.yml
         ├── toponodes.yml
         └── topolinks.yml
 ```
@@ -33,7 +31,6 @@ ansible-eda-demo/
 - `pyproject.toml` pins the Python packages needed by the Nokia EDA collections.
 - `requirements.yml` pulls in the `nokia.eda_utils_v1`, `nokia.eda_core_v1`, `nokia.eda_apps_core_v1`, and `nokia.eda_interfaces_v1alpha1` collections.
 - `inventories/demo/inventory.yaml` stores connection/authentication variables (EDA credentials plus the Keycloak realms/client configuration used by the token helper). Verify the defaults for credentials, API URL, or TLS behaviour before running the demo.
-- `vars/topology/nodeprofiles.yml` defines the NodeProfiles that will be ensured present (adjust the YANG bundle URL, onboarding credentials, or OS version to match your setup).
 - `vars/topology/toponodes.yml` lists the five TopoNodes created by the demo; adjust platforms, versions, or IPs if desired.
 - `vars/topology/topolinks.yml` describes the interface resources and TopoLinks that interconnect the nodes. Tune interface names, speeds, or link memberships to reflect your lab.
 - `playbooks/deploy-environment.yaml` orchestrates the environment workflow by including the modular task files in `playbooks/tasks/`.
@@ -58,8 +55,8 @@ uv sync
 #    reference ansible-collections repo so the local sources in requirements.yml resolve)
 uv run ansible-galaxy collection install -r requirements.yml
 
-# 3. Review vars/topology/nodeprofiles.yml, vars/topology/toponodes.yml, vars/topology/topolinks.yml, and inventories/demo/inventory.yaml to ensure the data matches your environment
-$EDITOR inventories/demo/inventory.yaml vars/topology/nodeprofiles.yml vars/topology/toponodes.yml vars/topology/topolinks.yml
+# 3. Review vars/topology/toponodes.yml, vars/topology/topolinks.yml, and inventories/demo/inventory.yaml to ensure the data matches your environment
+$EDITOR inventories/demo/inventory.yaml vars/topology/toponodes.yml vars/topology/topolinks.yml
 
 # 4. Execute the demo playbook
 uv run ansible-playbook playbooks/deploy-environment.yaml
@@ -75,7 +72,7 @@ To drive the demo from NetBox data instead of the local YAML files:
    - `netbox_api_endpoint`: Base URL of the NetBox instance (e.g. `http://100.82.85.165/`).
    - `netbox_token`: API token with read access (defaults to the `NETBOX_TOKEN` environment variable).
    - `netbox_topology_tag`: Tag that identifies the demo objects (defaults to `eda-demo-topology`).
-4. Run the playbook as usual. The pre-tasks will use the `netbox.netbox.nb_lookup` lookup plugin to build NodeProfiles, TopoNodes, interfaces, and links before submitting the Nokia EDA transaction.
+4. Run the playbook as usual. The pre-tasks will use the `netbox.netbox.nb_lookup` lookup plugin to build TopoNodes, interfaces, and links before submitting the Nokia EDA transaction.
 
 Switch `topology_source` back to `local` to return to the repository-provided variables without touching NetBox.
 
@@ -101,7 +98,6 @@ Both commands use the configuration files in the project root (`.ansible-lint` a
 ## Customisation
 
 - Toggle `tls_skip_verify` in `inventories/demo/inventory.yaml` if your EDA endpoint presents a trusted certificate.
-- Edit `vars/topology/nodeprofiles.yml` to change credential defaults, OS versions, or the YANG bundle URL.
 - Edit `vars/topology/toponodes.yml` to change the names, roles, platforms, software versions, or production IP addresses.
 - Edit `vars/topology/topolinks.yml` to update link speeds, interface mappings, or adjacency types.
 - Update the Keycloak settings in `inventories/demo/inventory.yaml` (`keycloak_*` variables) if your realm, URL path, or admin credentials differ from the defaults.

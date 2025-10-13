@@ -1,9 +1,8 @@
 ---
-- name: Provision demo NodeProfiles and TopoNodes via Nokia EDA transactions
+- name: Provision demo topology via Nokia EDA transactions
   hosts: localhost
   gather_facts: false
   vars_files:
-    - ../vars/topology/nodeprofiles.yml
     - ../vars/topology/toponodes.yml
     - ../vars/topology/topolinks.yml
   pre_tasks:
@@ -71,7 +70,6 @@
 
         - name: Override topology variables with NetBox content
           ansible.builtin.set_fact:
-            nodeprofiles: "{{ netbox_topology.nodeprofiles }}"
             toponodes: "{{ netbox_topology.toponodes }}"
             topolink_interfaces: "{{ netbox_topology.topolink_interfaces }}"
             topolinks: "{{ netbox_topology.topolinks }}"
@@ -81,30 +79,6 @@
             msg: >-
               Loaded {{ toponodes | length }} nodes and {{ topolinks | length }} links from
               NetBox tag "{{ netbox_topology_tag }}".
-
-    - name: Ensure NodeProfile specs contain required keys
-      ansible.builtin.assert:
-        that:
-          - nodeprofiles.spine.name | length > 0
-          - nodeprofiles.leaf.name | length > 0
-          - nodeprofiles.spine.spec.nodeUser is defined
-          - nodeprofiles.spine.spec.onboardingPassword is defined
-          - nodeprofiles.spine.spec.onboardingUsername is defined
-          - nodeprofiles.spine.spec.operatingSystem is defined
-          - nodeprofiles.spine.spec.version is defined
-          - nodeprofiles.spine.spec.yang is defined
-          - nodeprofiles.leaf.spec.nodeUser is defined
-          - nodeprofiles.leaf.spec.onboardingPassword is defined
-          - nodeprofiles.leaf.spec.onboardingUsername is defined
-          - nodeprofiles.leaf.spec.operatingSystem is defined
-          - nodeprofiles.leaf.spec.version is defined
-          - nodeprofiles.leaf.spec.yang is defined
-        fail_msg: >-
-          Populate vars/topology/nodeprofiles.yml with valid spec data (nodeUser, onboarding credentials,
-          operatingSystem, version, and YANG bundle URL) before running the demo.
-      when:
-        - nodeprofiles.spine is defined
-        - nodeprofiles.leaf is defined
 
     - name: Ensure TopoLink inputs are present
       ansible.builtin.assert:
@@ -117,9 +91,6 @@
   tasks:
     - name: Authenticate with Nokia EDA
       ansible.builtin.import_tasks: tasks/authenticate.yml
-
-    - name: Build NodeProfile resources
-      ansible.builtin.import_tasks: tasks/nodeprofiles.yml
 
     - name: Build TopoNode resources
       ansible.builtin.import_tasks: tasks/toponodes.yml
