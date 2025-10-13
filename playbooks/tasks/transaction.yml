@@ -22,7 +22,7 @@
     transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ topolink_crs.results }}"
   loop_control:
-    label: "{{ item.item.item.name }}"
+    label: "{{ item.item.metadata.name | default(item.result.metadata.name | default('TopoLink')) }}"
 
 - name: Prepare transaction resource summary
   ansible.builtin.set_fact:

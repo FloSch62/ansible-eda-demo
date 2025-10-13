@@ -24,6 +24,7 @@ import requests
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SITE_NAME = "EDA Demo"
 DEFAULT_TAG_NAME = "eda-demo-topology"
+ISL_TAG_NAME = "ISL"
 
 
 def load_yaml(path: Path) -> Dict[str, Any]:
@@ -209,7 +210,7 @@ def ensure_cable(
     a_iface: Any,
     b_iface: Any,
     cable_type: str,
-    tag_id: int,
+    tag_ids: Iterable[int],
 ) -> Any:
     existing = nb.dcim.cables.get(label=name)
     if existing:
@@ -225,7 +226,7 @@ def ensure_cable(
         "b_terminations": [
             {"object_type": "dcim.interface", "object_id": b_iface.id},
         ],
-        "tags": [tag_id],
+        "tags": list(tag_ids),
     }
 
     headers = {
@@ -303,6 +304,7 @@ def main() -> int:
 
     site = ensure_site(nb, DEFAULT_SITE_NAME)
     tag = ensure_tag(nb, DEFAULT_TAG_NAME)
+    isl_tag = ensure_tag(nb, ISL_TAG_NAME)
 
     # Clean up existing demo cables to ensure idempotency.
     for cable in nb.dcim.cables.filter(tag=tag.slug, limit=0):
@@ -428,7 +430,7 @@ def main() -> int:
                 a_iface=local_iface,
                 b_iface=remote_iface,
                 cable_type="smf",
-                tag_id=tag.id,
+                tag_ids=[tag.id, isl_tag.id],
             )
             print(
                 "Linked",

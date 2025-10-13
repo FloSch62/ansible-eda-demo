@@ -47,12 +47,16 @@
       {% set speed = speed_map.get(a_iface.get('type', {}).get('value'), 'auto') %}
       {% set local_key = a_iface['device']['name'] ~ '::' ~ a_iface['name'] %}
       {% set remote_key = b_iface['device']['name'] ~ '::' ~ b_iface['name'] %}
+      {% set tag_list = cable.get('tags') | default([]) | map(attribute='name') | list %}
+      {% set has_isl_tag = 'ISL' in tag_list %}
+      {% set tag_ns = namespace(values=tag_list) %}
       {% set link_entry = {
         'name': cable.get('label') or cable.get('display'),
         'links': [
           {
             'type': 'interSwitch',
             'speed': speed,
+            'tags': tag_ns.values,
             'local': {
               'node': a_iface['device']['name'],
               'interface': a_iface['name'],
@@ -66,6 +70,9 @@
           }
         ]
       } %}
+      {% if has_isl_tag %}
+        {% set link_entry = link_entry | combine({'labels': {'eda.nokia.com/role': 'interSwitch'}}) %}
+      {% endif %}
       {% set ns.topolinks = ns.topolinks + [link_entry] %}
     {% endif %}
   {% endif %}

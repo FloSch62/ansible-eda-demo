@@ -1,0 +1,17 @@
+{# Render a TopoLink resource payload while preserving optional metadata. #}
+{% set label_defaults = {'demo.nokia.com/source': 'uv-ansible-toponodes'} %}
+{% set merged_labels = label_defaults | combine(item.labels | default({})) %}
+{% set link_ns = namespace(values=[]) %}
+{% for link in item.links | default([]) %}
+  {% set link_ns.values = link_ns.values + [link] %}
+{% endfor %}
+{
+  "metadata": {
+    "namespace": "{{ eda_namespace }}",
+    "name": "{{ item.name }}",
+    "labels": {{ merged_labels | to_nice_json(indent=2) }}
+  },
+  "spec": {
+    "links": {{ link_ns.values | to_nice_json(indent=2) }}
+  }
+}

@@ -31,36 +31,36 @@ topolink_interfaces:
     members:
       - node: demo-spine-2
         interface: ethernet-1-3
-  - name: demo-leaf-1-ethernet-1-1
+  - name: demo-leaf-1-ethernet-1-49
     description: Leaf-1 uplink toward Spine-1
     members:
       - node: demo-leaf-1
-        interface: ethernet-1-1
-  - name: demo-leaf-1-ethernet-1-2
+        interface: ethernet-1-49
+  - name: demo-leaf-1-ethernet-1-50
     description: Leaf-1 uplink toward Spine-2
     members:
       - node: demo-leaf-1
-        interface: ethernet-1-2
-  - name: demo-leaf-2-ethernet-1-1
+        interface: ethernet-1-50
+  - name: demo-leaf-2-ethernet-1-49
     description: Leaf-2 uplink toward Spine-1
     members:
       - node: demo-leaf-2
-        interface: ethernet-1-1
-  - name: demo-leaf-2-ethernet-1-2
+        interface: ethernet-1-49
+  - name: demo-leaf-2-ethernet-1-50
     description: Leaf-2 uplink toward Spine-2
     members:
       - node: demo-leaf-2
-        interface: ethernet-1-2
-  - name: demo-leaf-3-ethernet-1-1
+        interface: ethernet-1-50
+  - name: demo-leaf-3-ethernet-1-49
     description: Leaf-3 uplink toward Spine-1
     members:
       - node: demo-leaf-3
-        interface: ethernet-1-1
-  - name: demo-leaf-3-ethernet-1-2
+        interface: ethernet-1-49
+  - name: demo-leaf-3-ethernet-1-50
     description: Leaf-3 uplink toward Spine-2
     members:
       - node: demo-leaf-3
-        interface: ethernet-1-2
+        interface: ethernet-1-50
 
 topolinks:
   - name: demo-link-spine1-leaf1
@@ -73,8 +73,8 @@ topolinks:
           interfaceResource: demo-spine-1-ethernet-1-1
         remote:
           node: demo-leaf-1
-          interface: ethernet-1-1
-          interfaceResource: demo-leaf-1-ethernet-1-1
+          interface: ethernet-1-49
+          interfaceResource: demo-leaf-1-ethernet-1-49
   - name: demo-link-spine2-leaf1
     links:
       - type: interSwitch
@@ -85,8 +85,8 @@ topolinks:
           interfaceResource: demo-spine-2-ethernet-1-1
         remote:
           node: demo-leaf-1
-          interface: ethernet-1-2
-          interfaceResource: demo-leaf-1-ethernet-1-2
+          interface: ethernet-1-50
+          interfaceResource: demo-leaf-1-ethernet-1-50
   - name: demo-link-spine1-leaf2
     links:
       - type: interSwitch
@@ -97,8 +97,8 @@ topolinks:
           interfaceResource: demo-spine-1-ethernet-1-2
         remote:
           node: demo-leaf-2
-          interface: ethernet-1-1
-          interfaceResource: demo-leaf-2-ethernet-1-1
+          interface: ethernet-1-49
+          interfaceResource: demo-leaf-2-ethernet-1-49
   - name: demo-link-spine2-leaf2
     links:
       - type: interSwitch
@@ -109,8 +109,8 @@ topolinks:
           interfaceResource: demo-spine-2-ethernet-1-2
         remote:
           node: demo-leaf-2
-          interface: ethernet-1-2
-          interfaceResource: demo-leaf-2-ethernet-1-2
+          interface: ethernet-1-50
+          interfaceResource: demo-leaf-2-ethernet-1-50
   - name: demo-link-spine1-leaf3
     links:
       - type: interSwitch
@@ -121,8 +121,8 @@ topolinks:
           interfaceResource: demo-spine-1-ethernet-1-3
         remote:
           node: demo-leaf-3
-          interface: ethernet-1-1
-          interfaceResource: demo-leaf-3-ethernet-1-1
+          interface: ethernet-1-49
+          interfaceResource: demo-leaf-3-ethernet-1-49
   - name: demo-link-spine2-leaf3
     links:
       - type: interSwitch
@@ -133,5 +133,5 @@ topolinks:
           interfaceResource: demo-spine-2-ethernet-1-3
         remote:
           node: demo-leaf-3
-          interface: ethernet-1-2
-          interfaceResource: demo-leaf-3-ethernet-1-2
+          interface: ethernet-1-50
+          interfaceResource: demo-leaf-3-ethernet-1-50

@@ -5,14 +5,8 @@
     auth_token: "{{ eda_auth_token }}"
     tls_skip_verify: "{{ tls_skip_verify | bool }}"
     state: cronly
-    resource:
-      metadata:
-        namespace: "{{ eda_namespace }}"
-        name: "{{ item.name }}"
-        labels:
-          demo.nokia.com/source: "uv-ansible-toponodes"
-      spec:
-        links: "{{ item.links }}"
+    resource: >-
+      {{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/topolink_resource.json.j2') | from_json }}
   loop: "{{ topolinks }}"
   loop_control:
     label: "{{ item.name }}"
