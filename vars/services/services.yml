@@ -1,6 +1,6 @@
 ---
 edge_interfaces:
-  - name: lag1-demo-leaf-1-demo-leaf-2-ethernet-1-1
+  - name: edge-demo-leaf-1-ethernet-1-1
     namespace: eda
     labels:
       eda.nokia.com/macvrf201: "true"
@@ -11,18 +11,12 @@ edge_interfaces:
       encapType: dot1q
       ethernet:
         speed: 10G
-      lag:
-        multihoming:
-          mode: all-active
-        lacp:
-          systemPriority: 32768
       members:
-        - interface: ethernet-1-1
+        - enabled: true
+          interface: ethernet-1-1
           node: demo-leaf-1
-        - interface: ethernet-1-1
-          node: demo-leaf-2
-      type: lag
-  - name: lag2-demo-leaf-1-demo-leaf-2-ethernet-1-2
+      type: interface
+  - name: edge-demo-leaf-2-ethernet-1-1
     namespace: eda
     labels:
       eda.nokia.com/macvrf202: "true"
@@ -33,18 +27,12 @@ edge_interfaces:
       encapType: dot1q
       ethernet:
         speed: 10G
-      lag:
-        multihoming:
-          mode: all-active
-        lacp:
-          systemPriority: 32768
       members:
-        - interface: ethernet-1-2
-          node: demo-leaf-1
-        - interface: ethernet-1-2
+        - enabled: true
+          interface: ethernet-1-1
           node: demo-leaf-2
-      type: lag
-  - name: lag3-demo-leaf-2-demo-leaf-3-ethernet-1-1
+      type: interface
+  - name: edge-demo-leaf-3-ethernet-1-1
     namespace: eda
     labels:
       eda.nokia.com/macvrf201: "true"
@@ -55,18 +43,12 @@ edge_interfaces:
       encapType: dot1q
       ethernet:
         speed: 10G
-      lag:
-        multihoming:
-          mode: all-active
-        lacp:
-          systemPriority: 32768
       members:
-        - interface: ethernet-1-1
+        - enabled: true
+          interface: ethernet-1-1
           node: demo-leaf-3
-        - interface: ethernet-1-1
-          node: demo-leaf-4
-      type: lag
-  - name: lag4-demo-leaf-2-demo-leaf-3-ethernet-1-2
+      type: interface
+  - name: edge-demo-leaf-4-ethernet-1-1
     namespace: eda
     labels:
       eda.nokia.com/macvrf202: "true"
@@ -77,17 +59,11 @@ edge_interfaces:
       encapType: dot1q
       ethernet:
         speed: 10G
-      lag:
-        multihoming:
-          mode: all-active
-        lacp:
-          systemPriority: 32768
       members:
-        - interface: ethernet-1-2
-          node: demo-leaf-3
-        - interface: ethernet-1-2
+        - enabled: true
+          interface: ethernet-1-1
           node: demo-leaf-4
-      type: lag
+      type: interface
 
 virtual_networks:
   - name: macvrf1001

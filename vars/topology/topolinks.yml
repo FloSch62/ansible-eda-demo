@@ -179,3 +179,55 @@ topolinks:
           node: demo-leaf-4
           interface: ethernet-1-50
           interfaceResource: demo-leaf-4-ethernet-1-50
+  - name: edge-link-demo-leaf-1-ethernet-1-1
+    labels:
+      eda.nokia.com/macvrf201: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    encapType: dot1q
+    links:
+      - type: edge
+        speed: "10G"
+        local:
+          node: demo-leaf-1
+          interface: ethernet-1-1
+          interfaceResource: edge-demo-leaf-1-ethernet-1-1
+  - name: edge-link-demo-leaf-2-ethernet-1-1
+    labels:
+      eda.nokia.com/macvrf202: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    encapType: dot1q
+    links:
+      - type: edge
+        speed: "10G"
+        local:
+          node: demo-leaf-2
+          interface: ethernet-1-1
+          interfaceResource: edge-demo-leaf-2-ethernet-1-1
+  - name: edge-link-demo-leaf-3-ethernet-1-1
+    labels:
+      eda.nokia.com/macvrf201: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    encapType: dot1q
+    links:
+      - type: edge
+        speed: "10G"
+        local:
+          node: demo-leaf-3
+          interface: ethernet-1-1
+          interfaceResource: edge-demo-leaf-3-ethernet-1-1
+  - name: edge-link-demo-leaf-4-ethernet-1-1
+    labels:
+      eda.nokia.com/macvrf202: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    encapType: dot1q
+    links:
+      - type: edge
+        speed: "10G"
+        local:
+          node: demo-leaf-4
+          interface: ethernet-1-1
+          interfaceResource: edge-demo-leaf-4-ethernet-1-1

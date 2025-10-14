@@ -1,0 +1,53 @@
+---
+- name: Manage CX topology lifecycle
+  vars:
+    cx_topology_state: "{{ cx_topology_state | default('present') }}"
+  when: manage_cx_topology | default(false)
+  block:
+    - name: Apply CX topology when state is present
+      when: cx_topology_state == 'present'
+      block:
+        - name: Create temporary workspace for CX topology files
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: cx-topology
+          register: cx_topology_tmp
+
+        - name: Render CX topology YAML
+          ansible.builtin.template:
+            src: templates/cx_topology.yaml.j2
+            dest: "{{ cx_topology_tmp.path }}/topology.yaml"
+
+        - name: Copy CX sim topology YAML
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../vars/topology/simtopo.yml"
+            dest: "{{ cx_topology_tmp.path }}/simtopo.yaml"
+
+        - name: Apply CX topology via topo.sh
+          ansible.builtin.command:
+            cmd: >-
+              {{ playbook_dir }}/../tools/topology/topo.sh
+              load
+              {{ cx_topology_tmp.path }}/topology.yaml
+              {{ cx_topology_tmp.path }}/simtopo.yaml
+          environment:
+            TOPO_NS: "{{ cx_topology_namespace | default('eda') }}"
+            CORE_NS: "{{ cx_toolbox_namespace | default('eda-system') }}"
+          register: cx_topology_result
+          changed_when: true
+      always:
+        - name: Remove CX topology workspace
+          ansible.builtin.file:
+            path: "{{ cx_topology_tmp.path }}"
+            state: absent
+          when: cx_topology_tmp is defined
+
+    - name: Remove CX topology when state is absent
+      when: cx_topology_state == 'absent'
+      ansible.builtin.command:
+        cmd: "{{ playbook_dir }}/../tools/topology/topo.sh remove"
+      environment:
+        TOPO_NS: "{{ cx_topology_namespace | default('eda') }}"
+        CORE_NS: "{{ cx_toolbox_namespace | default('eda-system') }}"
+      register: cx_topology_remove
+      changed_when: cx_topology_remove.rc == 0

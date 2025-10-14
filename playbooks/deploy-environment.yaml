@@ -115,3 +115,6 @@
 
     - name: Submit topology transaction
       ansible.builtin.import_tasks: tasks/transaction.yml
+
+    - name: Manage CX topology
+      ansible.builtin.import_tasks: tasks/cx_topology.yml

@@ -12,18 +12,29 @@ ansible-eda-demo/
 │       └── inventory.yaml
 ├── playbooks/
 │   ├── deploy-environment.yaml
-│   └── tasks/
-│       ├── authenticate.yml
-│       ├── interfaces.yml
-│       ├── topolinks.yml
-│       ├── toponodes.yml
-│       └── transaction.yml
+│   ├── tasks/
+│   │   ├── authenticate.yml
+│   │   ├── cx_topology.yml
+│   │   ├── interfaces.yml
+│   │   ├── topolinks.yml
+│   │   ├── toponodes.yml
+│   │   └── transaction.yml
+│   └── templates/
+│       ├── cx_topology.yaml.j2
+│       ├── interface_resource.json.j2
+│       ├── netbox_topology.json.j2
+│       ├── topolink_resource.json.j2
+│       └── toponode_resource.json.j2
 ├── pyproject.toml
 ├── requirements.yml
+├── tools/
+│   └── topology/
+│       └── topo.sh
 └── vars/
     ├── fabrics/
     ├── services/
     └── topology/
+        ├── simtopo.yml
         ├── toponodes.yml
         └── topolinks.yml
 ```
@@ -34,7 +45,10 @@ ansible-eda-demo/
 - `vars/topology/toponodes.yml` lists the five TopoNodes created by the demo; adjust platforms, versions, or IPs if desired.
 - `vars/topology/topolinks.yml` describes the interface resources and TopoLinks that interconnect the nodes. Tune interface names, speeds, or link memberships to reflect your lab.
 - `playbooks/deploy-environment.yaml` orchestrates the environment workflow by including the modular task files in `playbooks/tasks/`.
-- `playbooks/tasks/` contains the discrete task groups for authentication, resource preparation, and transaction submission.
+- `playbooks/tasks/` contains the discrete task groups for authentication, resource preparation, CX tooling integration, and transaction submission.
+- `playbooks/templates/cx_topology.yaml.j2` renders a lab-ready topology document that mirrors the active inventory.
+- `tools/topology/topo.sh` provides helper commands to push the generated topology and simulation topology into CX via the toolbox pod.
+- `vars/topology/simtopo.yml` lists the simulated servers that should be attached to each leaf interface.
 
 ## Prerequisites
 
@@ -60,6 +74,20 @@ $EDITOR inventories/demo/inventory.yaml vars/topology/toponodes.yml vars/topolog
 
 # 4. Execute the demo playbook
 uv run ansible-playbook playbooks/deploy-environment.yaml
+
+#   Add -e manage_cx_topology=true to automatically load the CX topology and sim nodes via topo.sh
+uv run ansible-playbook playbooks/deploy-environment.yaml -e manage_cx_topology=true
+```
+
+### Managing CX simulation topology
+
+Enabling `manage_cx_topology=true` causes the playbook to render an aggregated CX topology, copy `vars/topology/simtopo.yml`, and invoke `tools/topology/topo.sh` so the eda-toolbox pod loads both documents. Override the target namespaces with `cx_topology_namespace` (default `eda`) and `cx_toolbox_namespace` (default `eda-system`). Set `cx_topology_state=absent` when you want the playbook to call `topo.sh remove` and clear the ConfigMaps.
+
+The helper script can also be used directly:
+
+```bash
+tools/topology/topo.sh load /path/to/topology.yaml /path/to/simtopo.yaml
+tools/topology/topo.sh remove
 ```
 
 ### Using NetBox as the topology source

@@ -1,0 +1,32 @@
+{# Build a CX topology YAML combining TopoNodes and TopoLinks. #}
+{% set ns = namespace(nodes=[], links=[]) %}
+{% for node in toponodes %}
+  {% set node_spec = {
+    'name': node.name,
+    'labels': {
+      'eda.nokia.com/security-profile': node.security_profile | default('managed', true),
+      'eda.nokia.com/role': node.role
+    },
+    'spec': {
+      'operatingSystem': node.operating_system | default('srl'),
+      'platform': node.platform,
+      'version': node.version,
+      'nodeProfile': node.node_profile
+    }
+  } %}
+  {% set ns.nodes = ns.nodes + [node_spec] %}
+{% endfor %}
+{% for link in topolinks %}
+  {% set link_entry = {'name': link.name} %}
+  {% if link.labels is defined and link.labels %}
+    {% set link_entry = link_entry | combine({'labels': link.labels}) %}
+  {% endif %}
+  {% if link.encapType is defined and link.encapType %}
+    {% set link_entry = link_entry | combine({'encapType': link.encapType}) %}
+  {% endif %}
+  {% set link_entry = link_entry | combine({'spec': {'links': link.links}}) %}
+  {% set ns.links = ns.links + [link_entry] %}
+{% endfor %}
+{% set topology = {'items': [{'spec': {'nodes': ns.nodes, 'links': ns.links}}]} %}
+---
+{{ topology | to_nice_yaml(indent=2) }}

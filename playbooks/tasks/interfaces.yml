@@ -5,23 +5,8 @@
     auth_token: "{{ eda_auth_token }}"
     tls_skip_verify: "{{ tls_skip_verify | bool }}"
     state: cronly
-    resource: "{{ {
-      'metadata': (
-        {
-          'namespace': item.namespace | default(eda_namespace),
-          'name': item.name,
-          'labels': ({'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})))
-        }
-        | combine({'annotations': item.annotations} if (item.annotations is defined) else {})
-      ),
-      'spec': (
-        {
-          'type': item.type | default('interface'),
-          'members': item.members
-        }
-        | combine({'description': item.description} if (item.description is defined) else {})
-      )
-    } | to_json | from_json }}"
+    resource: >-
+      {{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/interface_resource.json.j2') | from_json }}
   loop: "{{ topolink_interfaces }}"
   loop_control:
     label: "{{ item.name }}"
@@ -42,17 +27,8 @@
     auth_token: "{{ eda_auth_token }}"
     tls_skip_verify: "{{ tls_skip_verify | bool }}"
     state: cronly
-    resource: "{{ {
-      'metadata': (
-        {
-          'namespace': item.namespace | default(eda_namespace),
-          'name': item.name,
-          'labels': ({'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})))
-        }
-        | combine({'annotations': item.annotations} if (item.annotations is defined) else {})
-      ),
-      'spec': item.spec
-    } | to_json | from_json }}"
+    resource: >-
+      {{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/interface_resource.json.j2') | from_json }}
   loop: "{{ edge_interfaces | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
