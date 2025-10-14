@@ -16,6 +16,11 @@ topolink_interfaces:
     members:
       - node: demo-spine-1
         interface: ethernet-1-3
+  - name: demo-spine-1-ethernet-1-4
+    description: Spine-1 uplink to Leaf-4
+    members:
+      - node: demo-spine-1
+        interface: ethernet-1-4
   - name: demo-spine-2-ethernet-1-1
     description: Spine-2 uplink to Leaf-1
     members:
@@ -31,6 +36,11 @@ topolink_interfaces:
     members:
       - node: demo-spine-2
         interface: ethernet-1-3
+  - name: demo-spine-2-ethernet-1-4
+    description: Spine-2 uplink to Leaf-4
+    members:
+      - node: demo-spine-2
+        interface: ethernet-1-4
   - name: demo-leaf-1-ethernet-1-49
     description: Leaf-1 uplink toward Spine-1
     members:
@@ -60,6 +70,16 @@ topolink_interfaces:
     description: Leaf-3 uplink toward Spine-2
     members:
       - node: demo-leaf-3
+        interface: ethernet-1-50
+  - name: demo-leaf-4-ethernet-1-49
+    description: Leaf-4 uplink toward Spine-1
+    members:
+      - node: demo-leaf-4
+        interface: ethernet-1-49
+  - name: demo-leaf-4-ethernet-1-50
+    description: Leaf-4 uplink toward Spine-2
+    members:
+      - node: demo-leaf-4
         interface: ethernet-1-50
 
 topolinks:
@@ -135,3 +155,27 @@ topolinks:
           node: demo-leaf-3
           interface: ethernet-1-50
           interfaceResource: demo-leaf-3-ethernet-1-50
+  - name: demo-link-spine1-leaf4
+    links:
+      - type: interSwitch
+        speed: "100G"
+        local:
+          node: demo-spine-1
+          interface: ethernet-1-4
+          interfaceResource: demo-spine-1-ethernet-1-4
+        remote:
+          node: demo-leaf-4
+          interface: ethernet-1-49
+          interfaceResource: demo-leaf-4-ethernet-1-49
+  - name: demo-link-spine2-leaf4
+    links:
+      - type: interSwitch
+        speed: "100G"
+        local:
+          node: demo-spine-2
+          interface: ethernet-1-4
+          interfaceResource: demo-spine-2-ethernet-1-4
+        remote:
+          node: demo-leaf-4
+          interface: ethernet-1-50
+          interfaceResource: demo-leaf-4-ethernet-1-50

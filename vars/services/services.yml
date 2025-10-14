@@ -1,0 +1,111 @@
+---
+edge_interfaces:
+  - name: lag1-demo-leaf-1-demo-leaf-2-ethernet-1-1
+    namespace: eda
+    labels:
+      eda.nokia.com/macvrf201: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    spec:
+      enabled: true
+      encapType: dot1q
+      ethernet:
+        speed: 10G
+      lag:
+        multihoming:
+          mode: all-active
+        lacp:
+          systemPriority: 32768
+      members:
+        - interface: ethernet-1-1
+          node: demo-leaf-1
+        - interface: ethernet-1-1
+          node: demo-leaf-2
+      type: lag
+  - name: lag2-demo-leaf-1-demo-leaf-2-ethernet-1-2
+    namespace: eda
+    labels:
+      eda.nokia.com/macvrf202: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    spec:
+      enabled: true
+      encapType: dot1q
+      ethernet:
+        speed: 10G
+      lag:
+        multihoming:
+          mode: all-active
+        lacp:
+          systemPriority: 32768
+      members:
+        - interface: ethernet-1-2
+          node: demo-leaf-1
+        - interface: ethernet-1-2
+          node: demo-leaf-2
+      type: lag
+  - name: lag3-demo-leaf-2-demo-leaf-3-ethernet-1-1
+    namespace: eda
+    labels:
+      eda.nokia.com/macvrf201: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    spec:
+      enabled: true
+      encapType: dot1q
+      ethernet:
+        speed: 10G
+      lag:
+        multihoming:
+          mode: all-active
+        lacp:
+          systemPriority: 32768
+      members:
+        - interface: ethernet-1-1
+          node: demo-leaf-3
+        - interface: ethernet-1-1
+          node: demo-leaf-4
+      type: lag
+  - name: lag4-demo-leaf-2-demo-leaf-3-ethernet-1-2
+    namespace: eda
+    labels:
+      eda.nokia.com/macvrf202: "true"
+      eda.nokia.com/macvrf1001: "true"
+      eda.nokia.com/role: edge
+    spec:
+      enabled: true
+      encapType: dot1q
+      ethernet:
+        speed: 10G
+      lag:
+        multihoming:
+          mode: all-active
+        lacp:
+          systemPriority: 32768
+      members:
+        - interface: ethernet-1-2
+          node: demo-leaf-3
+        - interface: ethernet-1-2
+          node: demo-leaf-4
+      type: lag
+
+virtual_networks:
+  - name: macvrf1001
+    namespace: eda
+    spec:
+      bridgeDomains:
+        - name: macvrf1001
+          spec:
+            eviPool: evi-pool
+            macAging: 300
+            macLearning: true
+            tunnelIndexPool: tunnel-index-pool
+            type: EVPNVXLAN
+            vniPool: vni-pool
+      vlans:
+        - name: macvrf1001
+          spec:
+            bridgeDomain: macvrf1001
+            interfaceSelector:
+              - eda.nokia.com/macvrf1001
+            vlanID: "1001"

@@ -6,6 +6,7 @@
     - ../vars/topology/toponodes.yml
     - ../vars/topology/topolinks.yml
     - ../vars/fabrics/fabrics.yml
+    - ../vars/services/services.yml
   pre_tasks:
     - name: Optionally harvest topology data from NetBox
       when: (topology_source | default('local')) | lower == 'netbox'
@@ -74,12 +75,16 @@
             toponodes: "{{ netbox_topology.toponodes }}"
             topolink_interfaces: "{{ netbox_topology.topolink_interfaces }}"
             topolinks: "{{ netbox_topology.topolinks }}"
+            edge_interfaces: "{{ netbox_topology.edge_interfaces | default(edge_interfaces | default([])) }}"
+            virtual_networks: "{{ netbox_topology.virtual_networks | default(virtual_networks | default([])) }}"
 
         - name: Note NetBox topology source
           ansible.builtin.debug:
             msg: >-
-              Loaded {{ toponodes | length }} nodes and {{ topolinks | length }} links from
-              NetBox tag "{{ netbox_topology_tag }}".
+              Loaded {{ toponodes | length }} nodes, {{ topolinks | length }} links,
+              {{ edge_interfaces | default([]) | length }} edge interfaces, and
+              {{ virtual_networks | default([]) | length }} virtual networks from NetBox tag
+              "{{ netbox_topology_tag }}".
 
     - name: Ensure TopoLink inputs are present
       ansible.builtin.assert:
@@ -104,6 +109,9 @@
 
     - name: Build Fabric resources
       ansible.builtin.import_tasks: tasks/fabrics.yml
+
+#    - name: Build Virtual Network resources
+#      ansible.builtin.import_tasks: tasks/virtual_networks.yml
 
     - name: Submit topology transaction
       ansible.builtin.import_tasks: tasks/transaction.yml

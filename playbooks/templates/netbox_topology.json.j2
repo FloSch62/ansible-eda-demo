@@ -4,7 +4,11 @@
   interface_by_id = {},
   topolink_interfaces = [],
   topolinks = [],
-  toponodes = []
+  toponodes = [],
+  edge_interfaces = [],
+  edge_interface_names = [],
+  virtual_networks = [],
+  virtual_network_names = []
 ) %}
 
 {# Normalise interfaces into lookup tables and TopoLink interface definitions #}
@@ -83,6 +87,24 @@
 {% for device in netbox_device_records | default([]) %}
   {% set ctx = device['config_context'] if 'config_context' in device and device['config_context'] else None %}
   {% set custom_fields = device.get('custom_fields') if device.get('custom_fields') else {} %}
+  {% set services_ctx = ctx.get('eda_services') if ctx and ctx.get('eda_services') else None %}
+
+  {% if services_ctx %}
+    {% for edge_iface in services_ctx.get('edge_interfaces', []) %}
+      {% set edge_name = edge_iface.get('name') %}
+      {% if edge_name and edge_name not in ns.edge_interface_names %}
+        {% set ns.edge_interface_names = ns.edge_interface_names + [edge_name] %}
+        {% set ns.edge_interfaces = ns.edge_interfaces + [edge_iface] %}
+      {% endif %}
+    {% endfor %}
+    {% for vnet in services_ctx.get('virtual_networks', []) %}
+      {% set vn_name = vnet.get('name') %}
+      {% if vn_name and vn_name not in ns.virtual_network_names %}
+        {% set ns.virtual_network_names = ns.virtual_network_names + [vn_name] %}
+        {% set ns.virtual_networks = ns.virtual_networks + [vnet] %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
 
   {% set version_value = custom_fields.get('version')
                           | default(device.get('software_version'), true)
@@ -135,5 +157,7 @@
 {
   "toponodes": {{ ns.toponodes | to_nice_json(indent=2) }},
   "topolink_interfaces": {{ ns.topolink_interfaces | to_nice_json(indent=2) }},
-  "topolinks": {{ ns.topolinks | to_nice_json(indent=2) }}
+  "topolinks": {{ ns.topolinks | to_nice_json(indent=2) }},
+  "edge_interfaces": {{ ns.edge_interfaces | to_nice_json(indent=2) }},
+  "virtual_networks": {{ ns.virtual_networks | to_nice_json(indent=2) }}
 }

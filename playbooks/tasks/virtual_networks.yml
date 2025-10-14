@@ -1,0 +1,32 @@
+---
+- name: Build VirtualNetwork custom resources (CR only)
+  nokia.eda_services_v1.virtualnetwork:
+    base_url: "{{ eda_api_url }}"
+    auth_token: "{{ eda_auth_token }}"
+    tls_skip_verify: "{{ tls_skip_verify | bool }}"
+    state: cronly
+    resource: "{{ {
+      'metadata': (
+        {
+          'namespace': item.namespace | default(eda_namespace),
+          'name': item.name,
+          'labels': ({'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})))
+        }
+        | combine({'annotations': item.annotations} if (item.annotations is defined) else {})
+      ),
+      'spec': item.spec
+    } | to_json | from_json }}"
+  loop: "{{ virtual_networks | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: virtual_network_crs
+  when: (virtual_networks | default([])) | length > 0
+
+- name: Cache virtual network change results
+  ansible.builtin.set_fact:
+    virtual_network_resource_results: "{{ virtual_network_crs.results | default([]) }}"
+  when: virtual_network_crs is defined
+
+- name: Initialise virtual network change result list when unset
+  ansible.builtin.set_fact:
+    virtual_network_resource_results: "{{ virtual_network_resource_results | default([]) }}"

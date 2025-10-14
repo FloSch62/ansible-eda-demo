@@ -32,3 +32,9 @@ toponodes:
     platform: "7220 IXR-D2"
     version: "25.7.1"
     production_ipv4: "198.51.100.23"
+  - name: demo-leaf-4
+    role: leaf
+    node_profile: srlinux-ghcr-25.7.1
+    platform: "7220 IXR-D2"
+    version: "25.7.1"
+    production_ipv4: "198.51.100.24"
