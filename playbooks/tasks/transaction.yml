@@ -8,28 +8,28 @@
     transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ topo_crs.results }}"
   loop_control:
-    label: "{{ item.item.item.name }}"
+    label: "{{ item.item.name }}"
 
 - name: Extend transaction change set with Interfaces
   ansible.builtin.set_fact:
     transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ interface_crs.results }}"
   loop_control:
-    label: "{{ item.item.item.name }}"
+    label: "{{ item.item.name }}"
 
 - name: Extend transaction change set with TopoLinks
   ansible.builtin.set_fact:
     transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ topolink_crs.results }}"
   loop_control:
-    label: "{{ item.item.metadata.name | default(item.result.metadata.name | default('TopoLink')) }}"
+    label: "{{ item.item.name | default(item.result.metadata.name | default('TopoLink')) }}"
 
 - name: Extend transaction change set with Fabrics
   ansible.builtin.set_fact:
     transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
   loop: "{{ fabric_crs.results }}"
   loop_control:
-    label: "{{ item.item.item.name | default(item.result.metadata.name | default('Fabric')) }}"
+    label: "{{ item.item.name | default(item.result.metadata.name | default('Fabric')) }}"
   when: fabric_crs is defined and (fabric_crs.results | length) > 0
 
 - name: Prepare transaction resource summary

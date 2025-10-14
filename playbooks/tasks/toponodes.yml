@@ -1,4 +1,4 @@
-- name: Launch TopoNode custom resource build jobs (CR only)
+- name: Build TopoNode custom resources (CR only)
   nokia.eda_apps_core_v1.toponode:
     base_url: "{{ eda_api_url }}"
     auth_token: "{{ eda_auth_token }}"
@@ -9,17 +9,4 @@
   loop: "{{ toponodes }}"
   loop_control:
     label: "{{ item.name }}"
-  async: "{{ eda_async_timeout | default(120) | int }}"
-  poll: 0
-  register: topo_cr_jobs
-
-- name: Wait for TopoNode custom resource builds to finish
-  ansible.builtin.async_status:
-    jid: "{{ item.ansible_job_id }}"
   register: topo_crs
-  until: topo_crs.finished
-  retries: "{{ eda_async_retries | default(120) | int }}"
-  delay: "{{ eda_async_delay | default(1) | int }}"
-  loop: "{{ topo_cr_jobs.results }}"
-  loop_control:
-    label: "{{ item.item.name }}"

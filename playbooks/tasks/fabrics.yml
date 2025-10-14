@@ -1,5 +1,5 @@
 ---
-- name: Launch Fabric custom resource build jobs (CR only)
+- name: Build Fabric custom resources (CR only)
   nokia.eda_fabrics_v1alpha1.fabric:
     base_url: "{{ eda_api_url }}"
     auth_token: "{{ eda_auth_token }}"
@@ -10,19 +10,5 @@
   loop: "{{ fabrics | default([]) }}"
   loop_control:
     label: "{{ item.name | default('fabric') }}"
-  async: "{{ eda_async_timeout | default(120) | int }}"
-  poll: 0
-  register: fabric_cr_jobs
-  when: (fabrics | default([])) | length > 0
-
-- name: Wait for Fabric custom resource builds to finish
-  ansible.builtin.async_status:
-    jid: "{{ item.ansible_job_id }}"
   register: fabric_crs
-  until: fabric_crs.finished
-  retries: "{{ eda_async_retries | default(120) | int }}"
-  delay: "{{ eda_async_delay | default(1) | int }}"
-  loop: "{{ fabric_cr_jobs.results }}"
-  loop_control:
-    label: "{{ item.item.name | default('fabric') }}"
-  when: fabric_cr_jobs is defined
+  when: (fabrics | default([])) | length > 0
