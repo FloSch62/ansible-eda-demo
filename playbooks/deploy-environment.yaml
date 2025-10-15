@@ -2,6 +2,8 @@
 - name: Provision demo topology via Nokia EDA transactions
   hosts: localhost
   gather_facts: false
+  vars:
+    transaction_manifest_path: "{{ playbook_dir }}/artifacts/eda-transaction.yaml"
   vars_files:
     - ../vars/fabrics/fabrics.yml
   pre_tasks:
@@ -72,6 +74,18 @@
                         validate_certs=netbox_validate_certs | default(true),
                         api_filter='tag=' ~ netbox_topology_tag) }}
 
+        - name: Fetch tagged VRFs from NetBox
+          ansible.builtin.uri:
+            url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/ipam/vrfs/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
+            method: GET
+            headers:
+              Authorization: "Token {{ netbox_token }}"
+            validate_certs: "{{ netbox_validate_certs | default(true) }}"
+            return_content: true
+            status_code: 200
+            timeout: 30
+          register: netbox_vrfs_response
+
         - name: Fetch tagged L2VPNs from NetBox
           ansible.builtin.uri:
             url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/vpn/l2vpns/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
@@ -90,6 +104,7 @@
             netbox_interface_records: "{{ netbox_interfaces | default([]) | map(attribute='value') | list }}"
             netbox_cable_records: "{{ netbox_cables | default([]) | map(attribute='value') | list }}"
             netbox_vlan_records: "{{ netbox_vlans | default([]) | map(attribute='value') | list }}"
+            netbox_vrf_records: "{{ (netbox_vrfs_response.json.results | default([])) if (netbox_vrfs_response.json | default(None)) else [] }}"
 
         - name: Extract L2VPN payload
           ansible.builtin.set_fact:

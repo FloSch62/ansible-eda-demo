@@ -9,7 +9,9 @@
   edge_interface_names = [],
   virtual_networks = [],
   virtual_network_names = [],
-  l2vpn_names = []
+  l2vpn_names = [],
+  l2vpn_parent_map = {},
+  vlan_lookup = {}
 ) %}
 
 {% set speed_map = {
@@ -23,6 +25,12 @@
   {% set l2vpn_name = l2vpn.get('name') %}
   {% if l2vpn_name and l2vpn_name not in ns.l2vpn_names %}
     {% set ns.l2vpn_names = ns.l2vpn_names + [l2vpn_name] %}
+  {% endif %}
+  {% set l2_cf = l2vpn.get('custom_fields') if l2vpn.get('custom_fields') else {} %}
+  {% set parent_field = l2_cf.get('edaParentIpVrf') %}
+  {% if parent_field %}
+    {% set parent_list = parent_field.split(',') | map('trim') | list %}
+    {% set ns.l2vpn_parent_map = ns.l2vpn_parent_map | combine({l2vpn_name: parent_list}) %}
   {% endif %}
 {% endfor %}
 
@@ -161,7 +169,11 @@
   {% if demo_tag_slug in tag_slugs %}
     {% set vlan_name = vlan.get('name') %}
     {% set vlan_id = vlan.get('vid') %}
-    {% if vlan_name and vlan_id is not none and vlan_name in ns.l2vpn_names and vlan_name not in ns.virtual_network_names %}
+    {% if vlan_name %}
+      {% set ns.vlan_lookup = ns.vlan_lookup | combine({ (vlan_name): vlan }) %}
+    {% endif %}
+    {% set parent_vrfs = ns.l2vpn_parent_map.get(vlan_name) %}
+    {% if vlan_name and vlan_id is not none and vlan_name in ns.l2vpn_names and vlan_name not in ns.virtual_network_names and (not parent_vrfs) %}
       {% set vnet_entry = {
         'name': vlan_name,
         'namespace': 'eda',
@@ -187,6 +199,117 @@
       {% set ns.virtual_networks = ns.virtual_networks + [vnet_entry] %}
       {% set ns.virtual_network_names = ns.virtual_network_names + [vlan_name] %}
     {% endif %}
+  {% endif %}
+{% endfor %}
+
+{# Augment virtual networks with VRF-backed definitions #}
+{% for vrf in netbox_vrf_records | default([]) %}
+  {% set vrf_name = vrf.get('name') %}
+  {% if vrf_name and (vrf_name not in ns.virtual_network_names) %}
+  {% set vrf_cf = vrf.get('custom_fields') if vrf.get('custom_fields') else {} %}
+  {% set eda_vrf_spec = vrf_cf.get('edaVrfSpec') if vrf_cf else {} %}
+  {% set vn_namespace = eda_vrf_spec.get('namespace') if eda_vrf_spec is mapping else 'eda' %}
+  {% set routers_ns = namespace(entries=[]) %}
+  {% set router_id = vrf_name | regex_replace('[^0-9]', '') %}
+  {% if router_id | length == 0 %}
+    {% set router_id = vrf_name %}
+  {% endif %}
+  {% set routers_ns.entries = routers_ns.entries + [
+    {
+      'name': vrf_name,
+      'spec': {
+        'eviPool': 'evi-pool',
+        'tunnelIndexPool': 'tunnel-index-pool',
+        'type': 'EVPNVXLAN',
+        'vniPool': 'vni-pool',
+        'routerID': router_id
+      }
+    }
+  ] %}
+
+  {% set bd_ns = namespace(entries=[], names=[]) %}
+  {% set vlan_ns = namespace(entries=[]) %}
+  {% set irb_ns = namespace(entries=[]) %}
+
+  {% for l2vpn in netbox_l2vpn_records | default([]) %}
+    {% set l2_cf = l2vpn.get('custom_fields') if l2vpn.get('custom_fields') else {} %}
+    {% set parent_field = l2_cf.get('edaParentIpVrf') %}
+    {% if parent_field %}
+      {% set parent_list = parent_field.split(',') | map('trim') | list %}
+    {% else %}
+      {% set parent_list = [] %}
+    {% endif %}
+    {% if vrf_name in parent_list %}
+      {% set bd_name = l2vpn.get('name') %}
+      {% if bd_name and bd_name not in bd_ns.names %}
+        {% set bd_spec = l2_cf.get('edaBridgeDomainSpec') %}
+        {% if bd_spec is not mapping %}
+          {% set bd_spec = default_bridge_domain_spec %}
+        {% endif %}
+        {% set bd_entry = {'name': bd_name, 'spec': bd_spec} %}
+        {% set bd_ns.entries = bd_ns.entries + [bd_entry] %}
+        {% set bd_ns.names = bd_ns.names + [bd_name] %}
+
+        {% set vlan_record = ns.vlan_lookup.get(bd_name) %}
+        {% if vlan_record %}
+          {% set vlan_id = vlan_record.get('vid') %}
+          {% if vlan_id is not none %}
+            {% set vlan_spec = {
+              'bridgeDomain': bd_name,
+              'interfaceSelector': ['eda.nokia.com/' ~ bd_name],
+              'vlanID': (vlan_id | string)
+            } %}
+            {% set vlan_entry = {'name': bd_name, 'spec': vlan_spec} %}
+            {% set vlan_ns.entries = vlan_ns.entries + [vlan_entry] %}
+          {% endif %}
+        {% endif %}
+
+        {% set gateway_ip = l2_cf.get('edaGatewayIp') %}
+        {% if gateway_ip %}
+          {% set irb_ns.entries = irb_ns.entries + [
+            {
+              'name': bd_name ~ '-irb',
+              'spec': {
+                'bridgeDomain': bd_name,
+                'router': vrf_name,
+                'ipMTU': 9200,
+                'ipAddresses': [
+                  {
+                    'ipv4Address': {
+                      'ipPrefix': gateway_ip,
+                      'primary': true
+                    }
+                  }
+                ]
+              }
+            }
+          ] %}
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+
+  {% if bd_ns.entries | length > 0 %}
+    {% set vnet_spec_map = {
+      'routers': routers_ns.entries
+    } %}
+    {% if bd_ns.entries | length > 0 %}
+      {% set vnet_spec_map = vnet_spec_map | combine({'bridgeDomains': bd_ns.entries}) %}
+    {% endif %}
+    {% if vlan_ns.entries | length > 0 %}
+      {% set vnet_spec_map = vnet_spec_map | combine({'vlans': vlan_ns.entries}) %}
+    {% endif %}
+    {% if irb_ns.entries | length > 0 %}
+      {% set vnet_spec_map = vnet_spec_map | combine({'irbInterfaces': irb_ns.entries}) %}
+    {% endif %}
+    {% set vnet_entry = {
+      'name': vrf_name,
+      'namespace': vn_namespace,
+      'spec': vnet_spec_map
+    } %}
+    {% set ns.virtual_networks = ns.virtual_networks + [vnet_entry] %}
+    {% set ns.virtual_network_names = ns.virtual_network_names + [vrf_name] %}
+  {% endif %}
   {% endif %}
 {% endfor %}
 

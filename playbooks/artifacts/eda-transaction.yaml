@@ -1,0 +1,750 @@
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoNode
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: leaf
+    eda.nokia.com/security-profile: managed
+  name: demo-leaf-1
+  namespace: eda
+spec:
+  nodeProfile: srlinux-ghcr-25.7.1
+  onBoarded: false
+  operatingSystem: srl
+  platform: 7220 IXR-D2
+  productionAddress:
+    ipv4: 198.51.100.21
+  version: 25.7.1
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoNode
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: leaf
+    eda.nokia.com/security-profile: managed
+  name: demo-leaf-2
+  namespace: eda
+spec:
+  nodeProfile: srlinux-ghcr-25.7.1
+  onBoarded: false
+  operatingSystem: srl
+  platform: 7220 IXR-D2
+  productionAddress:
+    ipv4: 198.51.100.22
+  version: 25.7.1
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoNode
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: leaf
+    eda.nokia.com/security-profile: managed
+  name: demo-leaf-3
+  namespace: eda
+spec:
+  nodeProfile: srlinux-ghcr-25.7.1
+  onBoarded: false
+  operatingSystem: srl
+  platform: 7220 IXR-D2
+  productionAddress:
+    ipv4: 198.51.100.23
+  version: 25.7.1
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoNode
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: leaf
+    eda.nokia.com/security-profile: managed
+  name: demo-leaf-4
+  namespace: eda
+spec:
+  nodeProfile: srlinux-ghcr-25.7.1
+  onBoarded: false
+  operatingSystem: srl
+  platform: 7220 IXR-D2
+  productionAddress:
+    ipv4: 198.51.100.24
+  version: 25.7.1
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoNode
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: spine
+    eda.nokia.com/security-profile: managed
+  name: demo-spine-1
+  namespace: eda
+spec:
+  nodeProfile: srlinux-ghcr-25.7.2
+  onBoarded: false
+  operatingSystem: srl
+  platform: 7220 IXR-D3L
+  productionAddress:
+    ipv4: 198.51.100.11
+  version: 25.7.2
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoNode
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: spine
+    eda.nokia.com/security-profile: managed
+  name: demo-spine-2
+  namespace: eda
+spec:
+  nodeProfile: srlinux-ghcr-25.7.2
+  onBoarded: false
+  operatingSystem: srl
+  platform: 7220 IXR-D3L
+  productionAddress:
+    ipv4: 198.51.100.12
+  version: 25.7.2
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-1-ethernet-1-1
+  namespace: eda
+spec:
+  description: edge-demo-leaf-1-ethernet-1-1
+  members:
+    - interface: ethernet-1-1
+      node: demo-leaf-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-1-ethernet-1-49
+  namespace: eda
+spec:
+  description: Leaf-1 uplink toward Spine-1
+  members:
+    - interface: ethernet-1-49
+      node: demo-leaf-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-1-ethernet-1-50
+  namespace: eda
+spec:
+  description: Leaf-1 uplink toward Spine-2
+  members:
+    - interface: ethernet-1-50
+      node: demo-leaf-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-2-ethernet-1-1
+  namespace: eda
+spec:
+  description: edge-demo-leaf-2-ethernet-1-1
+  members:
+    - interface: ethernet-1-1
+      node: demo-leaf-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-2-ethernet-1-49
+  namespace: eda
+spec:
+  description: Leaf-2 uplink toward Spine-1
+  members:
+    - interface: ethernet-1-49
+      node: demo-leaf-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-2-ethernet-1-50
+  namespace: eda
+spec:
+  description: Leaf-2 uplink toward Spine-2
+  members:
+    - interface: ethernet-1-50
+      node: demo-leaf-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-3-ethernet-1-1
+  namespace: eda
+spec:
+  description: edge-demo-leaf-3-ethernet-1-1
+  members:
+    - interface: ethernet-1-1
+      node: demo-leaf-3
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-3-ethernet-1-49
+  namespace: eda
+spec:
+  description: Leaf-3 uplink toward Spine-1
+  members:
+    - interface: ethernet-1-49
+      node: demo-leaf-3
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-3-ethernet-1-50
+  namespace: eda
+spec:
+  description: Leaf-3 uplink toward Spine-2
+  members:
+    - interface: ethernet-1-50
+      node: demo-leaf-3
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-4-ethernet-1-1
+  namespace: eda
+spec:
+  description: edge-demo-leaf-4-ethernet-1-1
+  members:
+    - interface: ethernet-1-1
+      node: demo-leaf-4
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-4-ethernet-1-49
+  namespace: eda
+spec:
+  description: Leaf-4 uplink toward Spine-1
+  members:
+    - interface: ethernet-1-49
+      node: demo-leaf-4
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-leaf-4-ethernet-1-50
+  namespace: eda
+spec:
+  description: Leaf-4 uplink toward Spine-2
+  members:
+    - interface: ethernet-1-50
+      node: demo-leaf-4
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-1-ethernet-1-1
+  namespace: eda
+spec:
+  description: Spine-1 uplink to Leaf-1
+  members:
+    - interface: ethernet-1-1
+      node: demo-spine-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-1-ethernet-1-2
+  namespace: eda
+spec:
+  description: Spine-1 uplink to Leaf-2
+  members:
+    - interface: ethernet-1-2
+      node: demo-spine-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-1-ethernet-1-3
+  namespace: eda
+spec:
+  description: Spine-1 uplink to Leaf-3
+  members:
+    - interface: ethernet-1-3
+      node: demo-spine-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-1-ethernet-1-4
+  namespace: eda
+spec:
+  description: Spine-1 uplink to Leaf-4
+  members:
+    - interface: ethernet-1-4
+      node: demo-spine-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-2-ethernet-1-1
+  namespace: eda
+spec:
+  description: Spine-2 uplink to Leaf-1
+  members:
+    - interface: ethernet-1-1
+      node: demo-spine-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-2-ethernet-1-2
+  namespace: eda
+spec:
+  description: Spine-2 uplink to Leaf-2
+  members:
+    - interface: ethernet-1-2
+      node: demo-spine-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-2-ethernet-1-3
+  namespace: eda
+spec:
+  description: Spine-2 uplink to Leaf-3
+  members:
+    - interface: ethernet-1-3
+      node: demo-spine-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-spine-2-ethernet-1-4
+  namespace: eda
+spec:
+  description: Spine-2 uplink to Leaf-4
+  members:
+    - interface: ethernet-1-4
+      node: demo-spine-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: edge
+  name: edge-demo-leaf-1-ethernet-1-1
+  namespace: eda
+spec:
+  enabled: true
+  encapType: dot1q
+  ethernet:
+    speed: 10G
+  members:
+    - enabled: true
+      interface: ethernet-1-1
+      node: demo-leaf-1
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: edge
+  name: edge-demo-leaf-2-ethernet-1-1
+  namespace: eda
+spec:
+  enabled: true
+  encapType: dot1q
+  ethernet:
+    speed: 10G
+  members:
+    - enabled: true
+      interface: ethernet-1-1
+      node: demo-leaf-2
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: edge
+  name: edge-demo-leaf-3-ethernet-1-1
+  namespace: eda
+spec:
+  enabled: true
+  encapType: dot1q
+  ethernet:
+    speed: 10G
+  members:
+    - enabled: true
+      interface: ethernet-1-1
+      node: demo-leaf-3
+  type: interface
+---
+apiVersion: interfaces.eda.nokia.com/v1alpha1
+kind: Interface
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: edge
+  name: edge-demo-leaf-4-ethernet-1-1
+  namespace: eda
+spec:
+  enabled: true
+  encapType: dot1q
+  ethernet:
+    speed: 10G
+  members:
+    - enabled: true
+      interface: ethernet-1-1
+      node: demo-leaf-4
+  type: interface
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine1-leaf1
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-1
+        interfaceResource: demo-spine-1-ethernet-1-1
+        node: demo-spine-1
+      remote:
+        interface: ethernet-1-49
+        interfaceResource: demo-leaf-1-ethernet-1-49
+        node: demo-leaf-1
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine2-leaf1
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-1
+        interfaceResource: demo-spine-2-ethernet-1-1
+        node: demo-spine-2
+      remote:
+        interface: ethernet-1-50
+        interfaceResource: demo-leaf-1-ethernet-1-50
+        node: demo-leaf-1
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine1-leaf2
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-2
+        interfaceResource: demo-spine-1-ethernet-1-2
+        node: demo-spine-1
+      remote:
+        interface: ethernet-1-49
+        interfaceResource: demo-leaf-2-ethernet-1-49
+        node: demo-leaf-2
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine2-leaf2
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-2
+        interfaceResource: demo-spine-2-ethernet-1-2
+        node: demo-spine-2
+      remote:
+        interface: ethernet-1-50
+        interfaceResource: demo-leaf-2-ethernet-1-50
+        node: demo-leaf-2
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine1-leaf3
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-3
+        interfaceResource: demo-spine-1-ethernet-1-3
+        node: demo-spine-1
+      remote:
+        interface: ethernet-1-49
+        interfaceResource: demo-leaf-3-ethernet-1-49
+        node: demo-leaf-3
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine2-leaf3
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-3
+        interfaceResource: demo-spine-2-ethernet-1-3
+        node: demo-spine-2
+      remote:
+        interface: ethernet-1-50
+        interfaceResource: demo-leaf-3-ethernet-1-50
+        node: demo-leaf-3
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine1-leaf4
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-4
+        interfaceResource: demo-spine-1-ethernet-1-4
+        node: demo-spine-1
+      remote:
+        interface: ethernet-1-49
+        interfaceResource: demo-leaf-4-ethernet-1-49
+        node: demo-leaf-4
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: core.eda.nokia.com/v1
+kind: TopoLink
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+    eda.nokia.com/role: interSwitch
+  name: demo-link-spine2-leaf4
+  namespace: eda
+spec:
+  links:
+    - local:
+        interface: ethernet-1-4
+        interfaceResource: demo-spine-2-ethernet-1-4
+        node: demo-spine-2
+      remote:
+        interface: ethernet-1-50
+        interfaceResource: demo-leaf-4-ethernet-1-50
+        node: demo-leaf-4
+      speed: 100G
+      type: interSwitch
+---
+apiVersion: fabrics.eda.nokia.com/v1alpha1
+kind: Fabric
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: demo-fabric
+  namespace: eda
+spec:
+  interSwitchLinks:
+    ipMTU: 9200
+    linkSelector:
+      - eda.nokia.com/role=interSwitch
+    unnumbered: IPV6
+  leafs:
+    leafNodeSelector:
+      - eda.nokia.com/role=leaf
+  overlayProtocol:
+    protocol: EBGP
+  spines:
+    spineNodeSelector:
+      - eda.nokia.com/role=spine
+  systemPoolIPV4: systemipv4-pool
+  underlayProtocol:
+    bgp:
+      asnPool: asn-pool
+    protocol:
+      - EBGP
+---
+apiVersion: services.eda.nokia.com/v1
+kind: VirtualNetwork
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: macvrf1001
+  namespace: eda
+spec:
+  bridgeDomains:
+    - name: macvrf1001
+      spec:
+        eviPool: evi-pool
+        macAging: 300
+        macLearning: true
+        tunnelIndexPool: tunnel-index-pool
+        type: EVPNVXLAN
+        vniPool: vni-pool
+  vlans:
+    - name: macvrf1001
+      spec:
+        bridgeDomain: macvrf1001
+        interfaceSelector:
+          - eda.nokia.com/macvrf1001
+        vlanID: "1001"
+---
+apiVersion: services.eda.nokia.com/v1
+kind: VirtualNetwork
+metadata:
+  labels:
+    demo.nokia.com/source: uv-ansible-toponodes
+  name: ipvrf2001
+  namespace: eda
+spec:
+  bridgeDomains:
+    - name: macvrf201
+      spec:
+        eviPool: evi-pool
+        macAging: 300
+        macLearning: true
+        macLimit: 250
+        tunnelIndexPool: tunnel-index-pool
+        type: EVPNVXLAN
+        vniPool: vni-pool
+    - name: macvrf202
+      spec:
+        eviPool: evi-pool
+        tunnelIndexPool: tunnel-index-pool
+        type: EVPNVXLAN
+        vniPool: vni-pool
+  irbInterfaces:
+    - name: macvrf201-irb
+      spec:
+        bridgeDomain: macvrf201
+        ipAddresses:
+          - ipv4Address:
+              ipPrefix: 10.20.1.254/24
+              primary: true
+        ipMTU: 9200
+        router: ipvrf2001
+    - name: macvrf202-irb
+      spec:
+        bridgeDomain: macvrf202
+        ipAddresses:
+          - ipv4Address:
+              ipPrefix: 10.20.2.254/24
+              primary: true
+        ipMTU: 9200
+        router: ipvrf2001
+  routers:
+    - name: ipvrf2001
+      spec:
+        eviPool: evi-pool
+        routerID: "2001"
+        tunnelIndexPool: tunnel-index-pool
+        type: EVPNVXLAN
+        vniPool: vni-pool
+  vlans:
+    - name: macvrf201
+      spec:
+        bridgeDomain: macvrf201
+        interfaceSelector:
+          - eda.nokia.com/macvrf201
+        vlanID: "201"
+    - name: macvrf202
+      spec:
+        bridgeDomain: macvrf202
+        interfaceSelector:
+          - eda.nokia.com/macvrf202
+        vlanID: "202"

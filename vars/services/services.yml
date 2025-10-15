@@ -86,7 +86,7 @@ virtual_networks:
               - eda.nokia.com/macvrf1001
             vlanID: "1001"
   - name: ipvrf2001
-    namespace: eda-telemetry
+    namespace: eda
     spec:
       bridgeDomains:
         - name: macvrf201

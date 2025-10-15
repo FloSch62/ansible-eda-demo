@@ -32,6 +32,7 @@ EDGE_LAG_CF_NAME = "edaEdgeLagId"
 VRF_SPEC_CF_NAME = "edaVrfSpec"
 BD_SPEC_CF_NAME = "edaBridgeDomainSpec"
 BD_PARENT_VRF_CF_NAME = "edaParentIpVrf"
+BD_GATEWAY_IP_CF_NAME = "edaGatewayIp"
 
 
 def info(message: str) -> None:
@@ -348,6 +349,36 @@ def ensure_primary_ip(
     return ip_obj
 
 
+def ensure_ipam_address(
+    nb: pynetbox.api.Api,
+    *,
+    address: str,
+    vrf_id: int | None = None,
+    status: str = "active",
+    role: str | None = None,
+    description: str | None = None,
+) -> Any:
+    payload: Dict[str, Any] = {
+        "address": address,
+        "status": status,
+    }
+    if vrf_id:
+        payload["vrf"] = vrf_id
+    if role:
+        payload["role"] = role
+    if description:
+        payload["description"] = description
+
+    query: Dict[str, Any] = {"address": address}
+    if vrf_id:
+        query["vrf_id"] = vrf_id
+    ip_obj = nb.ipam.ip_addresses.get(**query)
+    if ip_obj:
+        ip_obj.update(payload)
+        return nb.ipam.ip_addresses.get(id=ip_obj.id)
+    return nb.ipam.ip_addresses.create(payload)
+
+
 def ensure_cable(
     nb: pynetbox.api.Api,
     *,
@@ -491,6 +522,14 @@ def main() -> int:
         label="EDA Parent IP VRF",
         description="Name of the IP VRF associated with this bridge domain",
     )
+    ensure_custom_field(
+        nb,
+        name=BD_GATEWAY_IP_CF_NAME,
+        field_type="text",
+        content_types=["vpn.l2vpn"],
+        label="EDA Gateway IPv4",
+        description="Gateway IPv4 prefix associated with this MAC VRF",
+    )
     info("Custom fields ensured.")
 
     # Pre-load manufacturer lookup.
@@ -530,6 +569,7 @@ def main() -> int:
     vrf_lookup: Dict[str, Any] = {}
     l2vpn_lookup: Dict[str, Any] = {}
     vlan_lookup: Dict[str, Any] = {}
+    irb_ip_addresses_ensured = 0
 
     l2vpn_supported = True
 
@@ -548,14 +588,17 @@ def main() -> int:
         vlan_defs = vnet_spec.get("vlans", []) or []
         bridge_domains = vnet_spec.get("bridgeDomains", []) or []
         router_defs = vnet_spec.get("routers", []) or []
-
+        vnet_namespace = virtual_network.get("namespace") or "eda"
+        vnet_irb_interfaces = vnet_spec.get("irbInterfaces", []) or []
+        bd_gateway_lookup: Dict[str, str] = {}
         router_names: List[str] = []
         for router_def in router_defs:
             router_name = router_def.get("name")
             if not router_name:
                 continue
-            router_names.append(router_name)
             router_spec = router_def.get("spec", {}) or {}
+            if router_name not in router_names:
+                router_names.append(router_name)
             rd_candidate = router_spec.get("rd") or router_spec.get("routeDistinguisher")
             if rd_candidate is None:
                 rd_candidate = router_spec.get("routerID")
@@ -564,7 +607,7 @@ def main() -> int:
                 rd_candidate_str = str(rd_candidate)
                 if ":" in rd_candidate_str:
                     rd_value = rd_candidate_str
-            vrf_custom_fields = {VRF_SPEC_CF_NAME: router_spec}
+            vrf_custom_fields = {VRF_SPEC_CF_NAME: {"namespace": vnet_namespace}}
             vrf_description = f"EDA demo IP VRF {router_name} ({vnet_name})"
             vrf = ensure_vrf(
                 nb,
@@ -575,6 +618,59 @@ def main() -> int:
                 custom_fields=vrf_custom_fields,
             )
             vrf_lookup[router_name] = vrf
+
+        for irb_def in vnet_irb_interfaces:
+            irb_name = irb_def.get("name")
+            irb_spec = irb_def.get("spec", {}) or {}
+            bridge_domain_name = irb_spec.get("bridgeDomain")
+            if not bridge_domain_name:
+                continue
+            router_name = irb_spec.get("router")
+            ip_mtu = irb_spec.get("ipMTU")
+            ip_entries: List[Dict[str, Any]] = []
+            preferred_ipv4: str | None = None
+            for address_def in irb_spec.get("ipAddresses", []):
+                ip_payload = address_def.get("ipv4Address") or address_def.get("ipv6Address")
+                if not ip_payload:
+                    continue
+                ip_prefix = ip_payload.get("ipPrefix")
+                if not ip_prefix:
+                    continue
+                is_ipv6 = ":" in ip_prefix
+                vrf_obj = vrf_lookup.get(router_name) if router_name else None
+                vrf_id = getattr(vrf_obj, "id", None) if vrf_obj else None
+                ip_description = f"IRB {irb_name or bridge_domain_name} ({router_name or vnet_name})"
+                ip_obj = ensure_ipam_address(
+                    nb,
+                    address=ip_prefix,
+                    vrf_id=vrf_id,
+                    description=ip_description,
+                )
+                irb_ip_addresses_ensured += 1
+                ip_entry: Dict[str, Any] = {
+                    "address": ip_prefix,
+                    "primary": bool(ip_payload.get("primary")),
+                }
+                if ip_obj:
+                    ip_entry["ipId"] = ip_obj.id
+                ip_entry["family"] = "ipv6" if is_ipv6 else "ipv4"
+                ip_entries.append(ip_entry)
+
+                if not is_ipv6:
+                    if ip_payload.get("primary"):
+                        preferred_ipv4 = ip_prefix
+                    elif preferred_ipv4 is None:
+                        preferred_ipv4 = ip_prefix
+
+            irb_entry = {
+                "name": irb_name or f"{bridge_domain_name}-irb",
+                "bridgeDomain": bridge_domain_name,
+                "router": router_name or (router_names[0] if router_names else None),
+                "ipMTU": ip_mtu,
+                "ipAddresses": ip_entries,
+            }
+            if preferred_ipv4:
+                bd_gateway_lookup[bridge_domain_name] = preferred_ipv4
 
         bridge_domain_vlan_map: Dict[str, int] = {}
         first_vlan: int | None = None
@@ -636,6 +732,9 @@ def main() -> int:
                 bd_custom_fields[BD_PARENT_VRF_CF_NAME] = parent_vrf_string
             else:
                 bd_custom_fields[BD_PARENT_VRF_CF_NAME] = None
+            gateway_ip = bd_gateway_lookup.get(bd_name)
+            if gateway_ip:
+                bd_custom_fields[BD_GATEWAY_IP_CF_NAME] = gateway_ip
             l2vpn = ensure_l2vpn(
                 nb,
                 name=bd_name,
@@ -959,6 +1058,7 @@ def main() -> int:
         f"L2VPNs ensured: {len(l2vpn_lookup)} ({', '.join(sorted(l2vpn_lookup.keys()))})"
         if l2vpn_lookup
         else "L2VPNs ensured: 0",
+        f"IRB gateway IPs ensured: {irb_ip_addresses_ensured}",
     ]
 
     print("\nNetBox update summary:")

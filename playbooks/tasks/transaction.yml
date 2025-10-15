@@ -3,6 +3,10 @@
   ansible.builtin.set_fact:
     transaction_crs: []
 
+- name: Initialize transaction manifest resource list
+  ansible.builtin.set_fact:
+    transaction_manifest_resources: []
+
 - name: Extend transaction change set with TopoNodes
   ansible.builtin.set_fact:
     transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
@@ -60,6 +64,31 @@
       {%- else -%}
         no resources
       {%- endif -%}
+
+- name: Collect manifest resource payloads
+  ansible.builtin.set_fact:
+    transaction_manifest_resources: "{{ transaction_manifest_resources + [item.type.replace.value] }}"
+  loop: "{{ transaction_crs }}"
+
+- name: Ensure transaction manifest directory exists
+  ansible.builtin.file:
+    path: "{{ transaction_manifest_path | dirname }}"
+    state: directory
+    mode: '0755'
+
+- name: Write transaction manifest to disk
+  ansible.builtin.copy:
+    dest: "{{ transaction_manifest_path }}"
+    mode: '0644'
+    content: |-
+      {%- for resource in transaction_manifest_resources %}
+      ---
+      {{ resource | to_nice_yaml(indent=2) | regex_replace('^---\n', '') | trim }}
+      {% endfor -%}
+
+- name: Report transaction manifest location
+  ansible.builtin.debug:
+    msg: "Transaction manifest written to {{ transaction_manifest_path }}"
 
 - name: Submit dry run transaction for TopoNodes, Interfaces, and TopoLinks
   nokia.eda_core_v1.transaction.v2.transaction:
