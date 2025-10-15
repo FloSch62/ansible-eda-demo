@@ -29,6 +29,9 @@ DEFAULT_TAG_NAME = "eda-demo-topology"
 ISL_TAG_NAME = "ISL"
 EDGE_TAG_NAME = "EDA Edge"
 EDGE_LAG_CF_NAME = "edaEdgeLagId"
+VRF_SPEC_CF_NAME = "edaVrfSpec"
+BD_SPEC_CF_NAME = "edaBridgeDomainSpec"
+BD_PARENT_VRF_CF_NAME = "edaParentIpVrf"
 
 
 def info(message: str) -> None:
@@ -127,6 +130,7 @@ def ensure_l2vpn(
     status: str = "active",
     identifier: int | None = None,
     tag_ids: Iterable[int] | None = None,
+    custom_fields: Dict[str, Any] | None = None,
 ) -> Any | None:
     slug = slugify(name)
     try:
@@ -147,6 +151,8 @@ def ensure_l2vpn(
         payload["description"] = description
     if tag_ids:
         payload["tags"] = list(tag_ids)
+    if custom_fields:
+        payload["custom_fields"] = custom_fields
     if l2vpn:
         l2vpn.update(payload)
         return nb.vpn.l2vpns.get(id=l2vpn.id)
@@ -158,38 +164,67 @@ def ensure_l2vpn(
         raise
 
 
-def ensure_l2vpn_interface_termination(
+def ensure_vrf(
     nb: pynetbox.api.Api,
     *,
-    l2vpn_id: int,
-    interface_id: int,
-    role: str | None = None,
+    name: str,
+    rd: str | None = None,
     description: str | None = None,
-) -> tuple[Any, bool]:
-    if not l2vpn_id:
-        return (None, False)
-    term_endpoint = nb.vpn.l2vpn_terminations
-    existing = list(
-        term_endpoint.filter(
-            l2vpn_id=l2vpn_id,
-            assigned_object_type="dcim.interface",
-            assigned_object_id=interface_id,
-        )
-    )
+    tag_ids: Iterable[int] | None = None,
+    custom_fields: Dict[str, Any] | None = None,
+) -> Any:
+    """Ensure an IP VRF exists."""
+
+    vrf = nb.ipam.vrfs.get(name=name)
     payload: Dict[str, Any] = {
-        "l2vpn": l2vpn_id,
-        "assigned_object_type": "dcim.interface",
-        "assigned_object_id": interface_id,
+        "name": name,
     }
-    if role:
-        payload["role"] = role
+    if rd:
+        payload["rd"] = rd
     if description:
         payload["description"] = description
-    if existing:
-        record = existing[0]
-        record.update(payload)
-        return record, False
-    return term_endpoint.create(payload), True
+    if tag_ids:
+        payload["tags"] = list(tag_ids)
+    if custom_fields:
+        payload["custom_fields"] = custom_fields
+    if vrf:
+        vrf.update(payload)
+        return nb.ipam.vrfs.get(id=vrf.id)
+    return nb.ipam.vrfs.create(payload)
+
+
+def ensure_custom_field(
+    nb: pynetbox.api.Api,
+    *,
+    name: str,
+    field_type: str,
+    content_types: Iterable[str],
+    label: str | None = None,
+    description: str | None = None,
+    default: Any | None = None,
+) -> Any:
+    """Ensure a custom field exists for the provided NetBox content types."""
+
+    content_type_list = list(content_types)
+    cf = nb.extras.custom_fields.get(name=name)
+    payload: Dict[str, Any] = {
+        "name": name,
+        "type": field_type,
+        "content_types": content_type_list,
+        "object_types": content_type_list,
+        "required": False,
+    }
+    if label is not None:
+        payload["label"] = label
+    if description is not None:
+        payload["description"] = description
+    if default is not None:
+        payload["default"] = default
+
+    if cf:
+        cf.update(payload)
+        return cf
+    return nb.extras.custom_fields.create(payload)
 
 
 def ensure_device_custom_field(
@@ -203,25 +238,15 @@ def ensure_device_custom_field(
 ) -> Any:
     """Ensure a custom field exists on dcim.device objects."""
 
-    cf = nb.extras.custom_fields.get(name=name)
-    payload: Dict[str, Any] = {
-        "name": name,
-        "type": field_type,
-        "content_types": ["dcim.device"],
-        "object_types": ["dcim.device"],
-        "required": False,
-    }
-    if label is not None:
-        payload["label"] = label
-    if description is not None:
-        payload["description"] = description
-    if default is not None:
-        payload["default"] = default
-
-    if cf:
-        cf.update(payload)
-        return cf
-    return nb.extras.custom_fields.create(payload)
+    return ensure_custom_field(
+        nb,
+        name=name,
+        field_type=field_type,
+        content_types=["dcim.device"],
+        label=label,
+        description=description,
+        default=default,
+    )
 
 
 def ensure_interface_custom_field(
@@ -235,25 +260,15 @@ def ensure_interface_custom_field(
 ) -> Any:
     """Ensure a custom field exists on dcim.interface objects."""
 
-    cf = nb.extras.custom_fields.get(name=name)
-    payload: Dict[str, Any] = {
-        "name": name,
-        "type": field_type,
-        "content_types": ["dcim.interface"],
-        "object_types": ["dcim.interface"],
-        "required": False,
-    }
-    if label is not None:
-        payload["label"] = label
-    if description is not None:
-        payload["description"] = description
-    if default is not None:
-        payload["default"] = default
-
-    if cf:
-        cf.update(payload)
-        return cf
-    return nb.extras.custom_fields.create(payload)
+    return ensure_custom_field(
+        nb,
+        name=name,
+        field_type=field_type,
+        content_types=["dcim.interface"],
+        label=label,
+        description=description,
+        default=default,
+    )
 
 
 def ensure_device(
@@ -452,6 +467,30 @@ def main() -> int:
         label="Edge LAG Identifier",
         description="Identifier used to group multihomed edge interfaces",
     )
+    ensure_custom_field(
+        nb,
+        name=VRF_SPEC_CF_NAME,
+        field_type="json",
+        content_types=["ipam.vrf"],
+        label="EDA VRF Spec",
+        description="Router spec captured from Nokia EDA virtual network definitions",
+    )
+    ensure_custom_field(
+        nb,
+        name=BD_SPEC_CF_NAME,
+        field_type="json",
+        content_types=["vpn.l2vpn"],
+        label="EDA Bridge Domain Spec",
+        description="Bridge domain spec captured from Nokia EDA virtual network definitions",
+    )
+    ensure_custom_field(
+        nb,
+        name=BD_PARENT_VRF_CF_NAME,
+        field_type="text",
+        content_types=["vpn.l2vpn"],
+        label="EDA Parent IP VRF",
+        description="Name of the IP VRF associated with this bridge domain",
+    )
     info("Custom fields ensured.")
 
     # Pre-load manufacturer lookup.
@@ -488,6 +527,7 @@ def main() -> int:
             ctx.delete()
     info("Legacy config contexts removed (if present).")
 
+    vrf_lookup: Dict[str, Any] = {}
     l2vpn_lookup: Dict[str, Any] = {}
     vlan_lookup: Dict[str, Any] = {}
 
@@ -504,32 +544,41 @@ def main() -> int:
         vnet_name = virtual_network.get("name")
         if not vnet_name:
             continue
-        first_vlan = None
-        for vlan_def in virtual_network.get("spec", {}).get("vlans", []):
-            vlan_spec = vlan_def.get("spec", {})
-            vlan_id_raw = vlan_spec.get("vlanID")
-            if vlan_id_raw is None:
-                continue
-            try:
-                first_vlan = int(str(vlan_id_raw))
-                break
-            except (TypeError, ValueError):
-                continue
+        vnet_spec = virtual_network.get("spec", {}) or {}
+        vlan_defs = vnet_spec.get("vlans", []) or []
+        bridge_domains = vnet_spec.get("bridgeDomains", []) or []
+        router_defs = vnet_spec.get("routers", []) or []
 
-        l2vpn = ensure_l2vpn(
-            nb,
-            name=vnet_name,
-            type_slug="vxlan-evpn",
-            description=f"EDA demo virtual network {vnet_name}",
-            identifier=first_vlan,
-            tag_ids=[tag.id],
-        )
-        if l2vpn is None:
-            l2vpn_supported = False
-        else:
-            l2vpn_lookup[vnet_name] = l2vpn
+        router_names: List[str] = []
+        for router_def in router_defs:
+            router_name = router_def.get("name")
+            if not router_name:
+                continue
+            router_names.append(router_name)
+            router_spec = router_def.get("spec", {}) or {}
+            rd_candidate = router_spec.get("rd") or router_spec.get("routeDistinguisher")
+            if rd_candidate is None:
+                rd_candidate = router_spec.get("routerID")
+            rd_value: str | None = None
+            if rd_candidate is not None:
+                rd_candidate_str = str(rd_candidate)
+                if ":" in rd_candidate_str:
+                    rd_value = rd_candidate_str
+            vrf_custom_fields = {VRF_SPEC_CF_NAME: router_spec}
+            vrf_description = f"EDA demo IP VRF {router_name} ({vnet_name})"
+            vrf = ensure_vrf(
+                nb,
+                name=router_name,
+                rd=rd_value,
+                description=vrf_description,
+                tag_ids=[tag.id],
+                custom_fields=vrf_custom_fields,
+            )
+            vrf_lookup[router_name] = vrf
 
-        for vlan_def in virtual_network.get("spec", {}).get("vlans", []):
+        bridge_domain_vlan_map: Dict[str, int] = {}
+        first_vlan: int | None = None
+        for vlan_def in vlan_defs:
             vlan_name = vlan_def.get("name")
             vlan_spec = vlan_def.get("spec", {})
             vlan_id_raw = vlan_spec.get("vlanID")
@@ -539,7 +588,16 @@ def main() -> int:
                 vlan_id = int(str(vlan_id_raw))
             except (TypeError, ValueError):
                 continue
-            vlan_description = f"EDA demo VLAN for {vnet_name}"
+            if first_vlan is None:
+                first_vlan = vlan_id
+            bridge_domain_name = vlan_spec.get("bridgeDomain")
+            if bridge_domain_name and bridge_domain_name not in bridge_domain_vlan_map:
+                bridge_domain_vlan_map[str(bridge_domain_name)] = vlan_id
+            vlan_description = f"EDA demo VLAN {vlan_name} for {vnet_name}"
+            if bridge_domain_name:
+                vlan_description = (
+                    f"EDA demo VLAN {vlan_name} for bridge domain {bridge_domain_name}"
+                )
             vlan_obj = ensure_vlan(
                 nb,
                 site_id=site.id,
@@ -549,6 +607,48 @@ def main() -> int:
                 tag_ids=[tag.id],
             )
             vlan_lookup[vlan_name] = vlan_obj
+
+        # For legacy data without bridge domains, maintain a virtual-network L2VPN.
+        if not bridge_domains:
+            l2vpn = ensure_l2vpn(
+                nb,
+                name=vnet_name,
+                type_slug="vxlan-evpn",
+                description=f"EDA demo virtual network {vnet_name}",
+                identifier=first_vlan,
+                tag_ids=[tag.id],
+            )
+            if l2vpn is None:
+                l2vpn_supported = False
+            else:
+                l2vpn_lookup[vnet_name] = l2vpn
+
+        parent_vrf_string = ", ".join(router_names)
+        for bridge_domain in bridge_domains:
+            bd_name = bridge_domain.get("name")
+            if not bd_name:
+                continue
+            bd_spec = bridge_domain.get("spec", {}) or {}
+            identifier = bridge_domain_vlan_map.get(str(bd_name))
+            bd_description = f"EDA demo bridge domain {bd_name} ({vnet_name})"
+            bd_custom_fields = {BD_SPEC_CF_NAME: bd_spec}
+            if parent_vrf_string:
+                bd_custom_fields[BD_PARENT_VRF_CF_NAME] = parent_vrf_string
+            else:
+                bd_custom_fields[BD_PARENT_VRF_CF_NAME] = None
+            l2vpn = ensure_l2vpn(
+                nb,
+                name=bd_name,
+                type_slug="vxlan-evpn",
+                description=bd_description,
+                identifier=identifier,
+                tag_ids=[tag.id],
+                custom_fields=bd_custom_fields,
+            )
+            if l2vpn is None:
+                l2vpn_supported = False
+                continue
+            l2vpn_lookup[bd_name] = l2vpn
 
     def ensure_vlan_from_label(label_key: str) -> Any | None:
         if not label_key.startswith("eda.nokia.com/macvrf"):
@@ -709,7 +809,6 @@ def main() -> int:
             interface_cache[node_name][iface_name] = iface
 
     interface_vlan_updates = 0
-    l2vpn_terminations_created = 0
     edge_service_interface_ids: Set[int] = set()
 
     total_edge_services = len(service_edge_interfaces)
@@ -723,16 +822,6 @@ def main() -> int:
             f"[Edge service {edge_index}/{total_edge_services}] Processing {edge_name}..."
         )
         edge_labels = edge_def.get("labels", {})
-        target_l2vpn = None
-        for label_key, label_value in edge_labels.items():
-            if str(label_value).lower() != "true":
-                continue
-            if not label_key.startswith("eda.nokia.com/macvrf"):
-                continue
-            suffix = label_key.split("/")[-1]
-            if suffix in l2vpn_lookup:
-                target_l2vpn = l2vpn_lookup[suffix]
-                break
         vlan_targets: List[Any] = []
         for label_key, label_value in edge_labels.items():
             if str(label_value).lower() != "true":
@@ -799,16 +888,6 @@ def main() -> int:
             interface_cache[node_name][iface_name] = iface_obj
             edge_service_interface_ids.add(iface_obj.id)
 
-            if target_l2vpn:
-                _, created = ensure_l2vpn_interface_termination(
-                    nb,
-                    l2vpn_id=target_l2vpn.id,
-                    interface_id=iface_obj.id,
-                    description=edge_def.get("name"),
-                )
-                if created:
-                    l2vpn_terminations_created += 1
-
     # Build cables for each logical link.
     total_link_groups = len(topolink_groups)
     total_topology_links = sum(len(group.get("links", [])) for group in topolink_groups)
@@ -874,10 +953,12 @@ def main() -> int:
         f"VLANs ensured: {len(vlan_lookup)} ({', '.join(sorted(vlan_lookup.keys()))})"
         if vlan_lookup
         else "VLANs ensured: 0",
+        f"VRFs ensured: {len(vrf_lookup)} ({', '.join(sorted(vrf_lookup.keys()))})"
+        if vrf_lookup
+        else "VRFs ensured: 0",
         f"L2VPNs ensured: {len(l2vpn_lookup)} ({', '.join(sorted(l2vpn_lookup.keys()))})"
         if l2vpn_lookup
         else "L2VPNs ensured: 0",
-        f"L2VPN interface terminations created: {l2vpn_terminations_created}",
     ]
 
     print("\nNetBox update summary:")
