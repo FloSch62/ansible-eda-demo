@@ -8,6 +8,7 @@ Expected environment variables:
   NETBOX_URL   - base URL of the NetBox instance (e.g. http://127.0.0.1/)
   NETBOX_TOKEN - API token with write permission.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -66,7 +67,9 @@ def ensure_device_role(nb: pynetbox.api.Api, name: str, color: str) -> Any:
     return nb.dcim.device_roles.create(payload)
 
 
-def ensure_platform(nb: pynetbox.api.Api, name: str, manufacturer_id: int | None = None) -> Any:
+def ensure_platform(
+    nb: pynetbox.api.Api, name: str, manufacturer_id: int | None = None
+) -> Any:
     slug = slugify(name)
     platform = nb.dcim.platforms.get(slug=slug)
     payload: Dict[str, Any] = {"name": name, "slug": slug}
@@ -86,48 +89,6 @@ def ensure_tag(nb: pynetbox.api.Api, name: str) -> Any:
         tag.update(payload)
         return tag
     return nb.extras.tags.create(payload)
-
-
-def ensure_config_context(nb: pynetbox.api.Api, *, name: str, data: Dict[str, Any], role_id: int) -> Any:
-    context = nb.extras.config_contexts.get(name=name)
-    payload = {
-        "name": name,
-        "data": data,
-        "is_active": True,
-        "weight": 100,
-        "roles": [role_id],
-    }
-    if context:
-        context.update(payload)
-        return context
-    return nb.extras.config_contexts.create(payload)
-
-
-def ensure_site_config_context(
-    nb: pynetbox.api.Api,
-    *,
-    name: str,
-    data: Dict[str, Any],
-    site_id: int,
-    tag_slugs: Iterable[str] | None = None,
-    weight: int = 80,
-) -> Any:
-    """Ensure a config context scoped to a site (and optional tags) exists."""
-
-    context = nb.extras.config_contexts.get(name=name)
-    payload: Dict[str, Any] = {
-        "name": name,
-        "data": data,
-        "is_active": True,
-        "weight": weight,
-        "sites": [site_id],
-    }
-    if tag_slugs:
-        payload["tags"] = list(tag_slugs)
-    if context:
-        context.update(payload)
-        return context
-    return nb.extras.config_contexts.create(payload)
 
 
 def ensure_vlan(
@@ -351,7 +312,9 @@ def ensure_interface(
     return nb.dcim.interfaces.create(payload)
 
 
-def ensure_primary_ip(nb: pynetbox.api.Api, *, device: Any, interface: Any, address: str) -> Any:
+def ensure_primary_ip(
+    nb: pynetbox.api.Api, *, device: Any, interface: Any, address: str
+) -> Any:
     cidr = f"{ipaddress.ip_address(address)}/32"
     ip_obj = nb.ipam.ip_addresses.get(address=cidr)
     payload: Dict[str, Any] = {
@@ -434,8 +397,12 @@ def main() -> int:
         info(f"Loaded services definitions from {services_file}.")
     else:
         info("No services file found; continuing without services definitions.")
-    service_edge_interfaces: List[Dict[str, Any]] = services_data.get("edge_interfaces") or []
-    service_virtual_networks: List[Dict[str, Any]] = services_data.get("virtual_networks") or []
+    service_edge_interfaces: List[Dict[str, Any]] = (
+        services_data.get("edge_interfaces") or []
+    )
+    service_virtual_networks: List[Dict[str, Any]] = (
+        services_data.get("virtual_networks") or []
+    )
     topolink_groups = topology_links.get("topolinks", [])
     interface_groups = topology_links.get("topolink_interfaces", [])
     total_toponodes = len(toponodes)
@@ -494,7 +461,9 @@ def main() -> int:
         manufacturer = nb.dcim.manufacturers.create({"name": "Nokia", "slug": "nokia"})
 
     device_types = list(nb.dcim.device_types.filter(manufacturer_id=manufacturer.id))
-    info(f"Discovered {len(device_types)} device types for manufacturer {manufacturer.name}.")
+    info(
+        f"Discovered {len(device_types)} device types for manufacturer {manufacturer.name}."
+    )
 
     def resolve_device_type(model_name: str) -> Any | None:
         for candidate in device_types:
@@ -509,20 +478,15 @@ def main() -> int:
     edge_tag = ensure_tag(nb, EDGE_TAG_NAME)
     info("Site and tags ensured.")
 
-    ensure_site_config_context(
-        nb,
-        name="EDA Demo Services",
-        data={
-            "eda_services": {
-                "edge_interfaces": service_edge_interfaces,
-                "virtual_networks": service_virtual_networks,
-            }
-        },
-        site_id=site.id,
-        tag_slugs=[tag.slug],
-        weight=90,
-    )
-    info("Site config context updated with service metadata.")
+    # Remove legacy config contexts left by earlier demos.
+    for ctx in nb.extras.config_contexts.filter(name="EDA Demo Services"):
+        info("Removing legacy 'EDA Demo Services' config context...")
+        ctx.delete()
+    for ctx in nb.extras.config_contexts.filter(limit=0):
+        if ctx.name.endswith("-node-profile"):
+            info(f"Removing legacy config context '{ctx.name}'...")
+            ctx.delete()
+    info("Legacy config contexts removed (if present).")
 
     l2vpn_lookup: Dict[str, Any] = {}
     vlan_lookup: Dict[str, Any] = {}
@@ -532,7 +496,9 @@ def main() -> int:
     if service_virtual_networks:
         info(f"Processing {len(service_virtual_networks)} service virtual networks...")
     else:
-        info("No service virtual networks defined; skipping L2VPN/VLAN provisioning from services metadata.")
+        info(
+            "No service virtual networks defined; skipping L2VPN/VLAN provisioning from services metadata."
+        )
 
     for virtual_network in service_virtual_networks:
         vnet_name = virtual_network.get("name")
@@ -633,22 +599,6 @@ def main() -> int:
     for role_name in role_names:
         roles[role_name] = ensure_device_role(nb, role_name, role_colors[role_name])
 
-    for role_name, role_obj in roles.items():
-        profile_name = next(
-            (node.get("node_profile") for node in toponodes if node.get("role") == role_name and node.get("node_profile")),
-            None,
-        )
-        context_payload: Dict[str, Any] = {}
-        if profile_name:
-            context_payload["node_profile_name"] = profile_name
-        if context_payload:
-            ensure_config_context(
-                nb,
-                name=f"{role_name}-node-profile",
-                data=context_payload,
-                role_id=role_obj.id,
-            )
-
     # Ensure platforms exist for combinations of platform/version to preserve version metadata.
     unique_platform_names = {node["platform"] for node in toponodes}
     info(
@@ -673,7 +623,10 @@ def main() -> int:
         )
         device_type = resolve_device_type(node["platform"])
         if not device_type:
-            print(f"Device type '{node['platform']}' not found for node '{node['name']}'", file=sys.stderr)
+            print(
+                f"Device type '{node['platform']}' not found for node '{node['name']}'",
+                file=sys.stderr,
+            )
             continue
         platform_obj = platforms[node["platform"]]
         custom_fields_payload: Dict[str, Any] = {}
@@ -710,7 +663,9 @@ def main() -> int:
             type_slug="virtual",
             description="Management",
         )
-        ensure_primary_ip(nb, device=device, interface=mgmt_iface, address=node["production_ipv4"])
+        ensure_primary_ip(
+            nb, device=device, interface=mgmt_iface, address=node["production_ipv4"]
+        )
 
     # Create data-plane interfaces based on topology definitions.
     interface_cache: Dict[str, Dict[str, Any]] = defaultdict(dict)
@@ -720,17 +675,28 @@ def main() -> int:
             f"Ensuring interfaces for {total_interface_groups} topology interface definitions..."
         )
     else:
-        info("No topology interface definitions found; skipping interface provisioning.")
+        info(
+            "No topology interface definitions found; skipping interface provisioning."
+        )
     for idx, iface_def in enumerate(interface_groups, 1):
-        group_label = iface_def.get("name") or iface_def.get("description") or f"interface-group-{idx}"
-        info(f"[Interface group {idx}/{total_interface_groups}] Processing {group_label}...")
+        group_label = (
+            iface_def.get("name")
+            or iface_def.get("description")
+            or f"interface-group-{idx}"
+        )
+        info(
+            f"[Interface group {idx}/{total_interface_groups}] Processing {group_label}..."
+        )
         description = iface_def.get("description")
         for member in iface_def.get("members", []):
             node_name = member["node"]
             iface_name = member["interface"]
             device = devices.get(node_name)
             if not device:
-                print(f"Skipping interface '{iface_name}' on '{node_name}' because device is missing", file=sys.stderr)
+                print(
+                    f"Skipping interface '{iface_name}' on '{node_name}' because device is missing",
+                    file=sys.stderr,
+                )
                 continue
             iface = ensure_interface(
                 nb,
@@ -753,7 +719,9 @@ def main() -> int:
         info("No edge service definitions provided; skipping edge service processing.")
     for edge_index, edge_def in enumerate(service_edge_interfaces, 1):
         edge_name = edge_def.get("name") or f"edge-{edge_index}"
-        info(f"[Edge service {edge_index}/{total_edge_services}] Processing {edge_name}...")
+        info(
+            f"[Edge service {edge_index}/{total_edge_services}] Processing {edge_name}..."
+        )
         edge_labels = edge_def.get("labels", {})
         target_l2vpn = None
         for label_key, label_value in edge_labels.items():
@@ -773,9 +741,13 @@ def main() -> int:
             if vlan_obj:
                 vlan_targets.append(vlan_obj)
 
-        bundle_id = edge_def.get("name") or "edge-bundle"
+        spec = edge_def.get("spec") or {}
+        service_type = str(spec.get("type") or "").lower()
+        bundle_id = None
+        if service_type == "lag":
+            bundle_id = edge_def.get("name") or "edge-bundle"
 
-        for member in edge_def.get("spec", {}).get("members", []):
+        for member in spec.get("members", []):
             node_name = member.get("node")
             iface_name = member.get("interface")
             if not node_name or not iface_name:
@@ -797,17 +769,16 @@ def main() -> int:
             if not iface_obj:
                 continue
 
-            existing_tag_ids = {
-                t.id for t in getattr(iface_obj, "tags", []) if getattr(t, "id", None) is not None
-            }
-            desired_tag_ids = sorted(existing_tag_ids | {tag.id, edge_tag.id})
+            desired_tag_ids = sorted({tag.id, edge_tag.id})
             update_payload: Dict[str, Any] = {"tags": desired_tag_ids}
 
             if vlan_targets:
                 current_tagged_ids = {
                     vlan.id for vlan in getattr(iface_obj, "tagged_vlans", [])
                 }
-                desired_tagged_ids = current_tagged_ids | {vlan.id for vlan in vlan_targets}
+                desired_tagged_ids = current_tagged_ids | {
+                    vlan.id for vlan in vlan_targets
+                }
                 current_mode = str(getattr(iface_obj, "mode", "") or "").lower()
                 if desired_tagged_ids != current_tagged_ids or current_mode != "tagged":
                     interface_vlan_updates += 1
@@ -815,9 +786,13 @@ def main() -> int:
                 update_payload["mode"] = "tagged"
 
             if bundle_id:
-                existing_cf = (getattr(iface_obj, "custom_fields", {}) or {}).get(EDGE_LAG_CF_NAME)
+                existing_cf = (getattr(iface_obj, "custom_fields", {}) or {}).get(
+                    EDGE_LAG_CF_NAME
+                )
                 if existing_cf != bundle_id:
-                    update_payload.setdefault("custom_fields", {})[EDGE_LAG_CF_NAME] = bundle_id
+                    update_payload.setdefault("custom_fields", {})[EDGE_LAG_CF_NAME] = (
+                        bundle_id
+                    )
 
             iface_obj.update(update_payload)
             iface_obj = nb.dcim.interfaces.get(id=iface_obj.id)
@@ -845,19 +820,31 @@ def main() -> int:
         info("No topology links defined; skipping cable creation.")
     for group_index, link_group in enumerate(topolink_groups, 1):
         group_name = link_group.get("name") or f"link-group-{group_index}"
-        info(f"[Cable group {group_index}/{total_link_groups}] Processing {group_name}...")
+        info(
+            f"[Cable group {group_index}/{total_link_groups}] Processing {group_name}..."
+        )
         for link in link_group.get("links", []):
             local = link.get("local", {})
             remote = link.get("remote", {})
             local_device = devices.get(local.get("node"))
             remote_device = devices.get(remote.get("node"))
             if not local_device or not remote_device:
-                print(f"Skipping link '{link_group['name']}' due to missing devices", file=sys.stderr)
+                print(
+                    f"Skipping link '{link_group['name']}' due to missing devices",
+                    file=sys.stderr,
+                )
                 continue
-            local_iface = interface_cache.get(local.get("node"), {}).get(local.get("interface"))
-            remote_iface = interface_cache.get(remote.get("node"), {}).get(remote.get("interface"))
+            local_iface = interface_cache.get(local.get("node"), {}).get(
+                local.get("interface")
+            )
+            remote_iface = interface_cache.get(remote.get("node"), {}).get(
+                remote.get("interface")
+            )
             if not local_iface or not remote_iface:
-                print(f"Skipping link '{link_group['name']}' due to missing interfaces", file=sys.stderr)
+                print(
+                    f"Skipping link '{link_group['name']}' due to missing interfaces",
+                    file=sys.stderr,
+                )
                 continue
             cable = ensure_cable(
                 nb,
@@ -884,8 +871,12 @@ def main() -> int:
         f"Edge interface definitions processed: {len(service_edge_interfaces)}",
         f"Interfaces tagged for edge services: {len(edge_service_interface_ids)}",
         f"Interface VLAN assignments updated: {interface_vlan_updates}",
-        f"VLANs ensured: {len(vlan_lookup)} ({', '.join(sorted(vlan_lookup.keys()))})" if vlan_lookup else "VLANs ensured: 0",
-        f"L2VPNs ensured: {len(l2vpn_lookup)} ({', '.join(sorted(l2vpn_lookup.keys()))})" if l2vpn_lookup else "L2VPNs ensured: 0",
+        f"VLANs ensured: {len(vlan_lookup)} ({', '.join(sorted(vlan_lookup.keys()))})"
+        if vlan_lookup
+        else "VLANs ensured: 0",
+        f"L2VPNs ensured: {len(l2vpn_lookup)} ({', '.join(sorted(l2vpn_lookup.keys()))})"
+        if l2vpn_lookup
+        else "L2VPNs ensured: 0",
         f"L2VPN interface terminations created: {l2vpn_terminations_created}",
     ]
 
@@ -894,7 +885,9 @@ def main() -> int:
         print(f"  - {line}")
 
     if not l2vpn_supported and service_virtual_networks:
-        print("  - L2VPN endpoint unavailable in NetBox; skipped creation of L2VPN objects")
+        print(
+            "  - L2VPN endpoint unavailable in NetBox; skipped creation of L2VPN objects"
+        )
 
     print("\nTopology push to NetBox completed successfully.")
     return 0

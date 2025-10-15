@@ -3,11 +3,17 @@
   hosts: localhost
   gather_facts: false
   vars_files:
-    - ../vars/topology/toponodes.yml
-    - ../vars/topology/topolinks.yml
     - ../vars/fabrics/fabrics.yml
-    - ../vars/services/services.yml
   pre_tasks:
+    - name: Load local topology definitions when NetBox is disabled
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+      loop:
+        - ../vars/topology/toponodes.yml
+        - ../vars/topology/topolinks.yml
+        - ../vars/services/services.yml
+      when: (topology_source | default('local')) | lower != 'netbox'
+
     - name: Cache default edge link definitions
       ansible.builtin.set_fact:
         cx_local_edge_topolinks: "{{ topolinks | default([]) | selectattr('name', 'match', '^edge-link-') | list }}"
@@ -57,11 +63,37 @@
                         validate_certs=netbox_validate_certs | default(true),
                         api_filter='tag=' ~ netbox_topology_tag) }}
 
+        - name: Fetch tagged VLANs from NetBox
+          ansible.builtin.set_fact:
+            netbox_vlans: >-
+              {{ lookup('netbox.netbox.nb_lookup', 'vlans',
+                        api_endpoint=netbox_api_endpoint,
+                        token=netbox_token,
+                        validate_certs=netbox_validate_certs | default(true),
+                        api_filter='tag=' ~ netbox_topology_tag) }}
+
+        - name: Fetch tagged L2VPNs from NetBox
+          ansible.builtin.uri:
+            url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/vpn/l2vpns/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
+            method: GET
+            headers:
+              Authorization: "Token {{ netbox_token }}"
+            validate_certs: "{{ netbox_validate_certs | default(true) }}"
+            return_content: true
+            status_code: 200
+            timeout: 30
+          register: netbox_l2vpns_response
+
         - name: Normalise NetBox lookup results
           ansible.builtin.set_fact:
             netbox_device_records: "{{ netbox_devices | default([]) | map(attribute='value') | list }}"
             netbox_interface_records: "{{ netbox_interfaces | default([]) | map(attribute='value') | list }}"
             netbox_cable_records: "{{ netbox_cables | default([]) | map(attribute='value') | list }}"
+            netbox_vlan_records: "{{ netbox_vlans | default([]) | map(attribute='value') | list }}"
+
+        - name: Extract L2VPN payload
+          ansible.builtin.set_fact:
+            netbox_l2vpn_records: "{{ (netbox_l2vpns_response.json.results | default([])) if (netbox_l2vpns_response.json | default(None)) else [] }}"
 
         - name: Ensure NetBox returned topology objects
           ansible.builtin.assert:

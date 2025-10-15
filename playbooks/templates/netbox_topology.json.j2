@@ -1,4 +1,4 @@
-{# Build NetBox-derived topology structures with on-the-fly NodeProfile assignments. #}
+{# Build NetBox-derived topology structures directly from native objects. #}
 {% set ns = namespace(
   interface_lookup = {},
   interface_by_id = {},
@@ -8,8 +8,23 @@
   edge_interfaces = [],
   edge_interface_names = [],
   virtual_networks = [],
-  virtual_network_names = []
+  virtual_network_names = [],
+  l2vpn_names = []
 ) %}
+
+{% set speed_map = {
+  '100gbase-x-qsfp28': '100G',
+  '40gbase-qsfpp': '40G',
+  '25gbase-x-sfp28': '25G',
+  '10gbase-x-sfpp': '10G'
+} %}
+
+{% for l2vpn in netbox_l2vpn_records | default([]) %}
+  {% set l2vpn_name = l2vpn.get('name') %}
+  {% if l2vpn_name and l2vpn_name not in ns.l2vpn_names %}
+    {% set ns.l2vpn_names = ns.l2vpn_names + [l2vpn_name] %}
+  {% endif %}
+{% endfor %}
 
 {# Normalise interfaces into lookup tables and TopoLink interface definitions #}
 {% for iface in netbox_interface_records | default([]) %}
@@ -33,13 +48,6 @@
   {% endif %}
 {% endfor %}
 
-{% set speed_map = {
-  '100gbase-x-qsfp28': '100G',
-  '40gbase-qsfpp': '40G',
-  '25gbase-x-sfp28': '25G',
-  '10gbase-x-sfpp': '10G'
-} %}
-
 {# Build TopoLinks from cables #}
 {% for cable in netbox_cable_records | default([]) %}
   {% set a_terms = cable.get('a_terminations', []) %}
@@ -48,7 +56,13 @@
     {% set a_iface = ns.interface_by_id.get(a_terms[0]['id'] | string) %}
     {% set b_iface = ns.interface_by_id.get(b_terms[0]['id'] | string) %}
     {% if a_iface and b_iface %}
-      {% set speed = speed_map.get(a_iface.get('type', {}).get('value'), 'auto') %}
+      {% set a_type_obj = a_iface.get('type') %}
+      {% if a_type_obj is string %}
+        {% set a_type_value = a_type_obj %}
+      {% else %}
+        {% set a_type_value = a_type_obj.get('value') %}
+      {% endif %}
+      {% set speed = speed_map.get(a_type_value, 'auto') %}
       {% set local_key = a_iface['device']['name'] ~ '::' ~ a_iface['name'] %}
       {% set remote_key = b_iface['device']['name'] ~ '::' ~ b_iface['name'] %}
       {% set tag_objects = cable.get('tags') | default([]) %}
@@ -83,50 +97,111 @@
   {% endif %}
 {% endfor %}
 
+{# Derive edge interface definitions from NetBox interfaces tagged for edge services #}
+{% set edge_tag_slug = 'eda-edge' %}
+{% for iface in netbox_interface_records | default([]) %}
+  {% set tag_slugs = iface.get('tags') | default([]) | map(attribute='slug') | list %}
+  {% if edge_tag_slug in tag_slugs %}
+    {% set device_name = iface['device']['name'] %}
+    {% set iface_name = iface['name'] %}
+    {% set edge_resource = 'edge-' ~ device_name ~ '-' ~ iface_name.replace('/', '-') %}
+    {% if edge_resource not in ns.edge_interface_names %}
+      {% set iface_type_obj = iface.get('type') %}
+      {% if iface_type_obj is string %}
+        {% set iface_type_value = iface_type_obj %}
+      {% else %}
+        {% set iface_type_value = iface_type_obj.get('value') %}
+      {% endif %}
+      {% set iface_speed = speed_map.get(iface_type_value, 'auto') %}
+      {% set label_map = {'eda.nokia.com/role': 'edge'} %}
+      {% for vlan in iface.get('tagged_vlans', []) %}
+        {% if vlan is mapping and vlan.get('name') %}
+          {% set label_key = 'eda.nokia.com/' ~ vlan.get('name') %}
+          {% set label_map = label_map | combine({label_key: 'true'}) %}
+        {% endif %}
+      {% endfor %}
+      {% set edge_entry = {
+        'name': edge_resource,
+        'namespace': 'eda',
+        'labels': label_map,
+        'spec': {
+          'enabled': true,
+          'encapType': 'dot1q',
+          'ethernet': {
+            'speed': iface_speed
+          },
+          'members': [
+            {
+              'enabled': true,
+              'interface': iface_name,
+              'node': device_name
+            }
+          ],
+          'type': 'interface'
+        }
+      } %}
+      {% set ns.edge_interfaces = ns.edge_interfaces + [edge_entry] %}
+      {% set ns.edge_interface_names = ns.edge_interface_names + [edge_resource] %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+{# Build virtual network definitions from VLANs tagged for the demo #}
+{% set demo_tag_slug = 'eda-demo-topology' %}
+{% set default_bridge_domain_spec = {
+  'eviPool': 'evi-pool',
+  'macAging': 300,
+  'macLearning': true,
+  'tunnelIndexPool': 'tunnel-index-pool',
+  'type': 'EVPNVXLAN',
+  'vniPool': 'vni-pool'
+} %}
+{% for vlan in netbox_vlan_records | default([]) %}
+  {% set tag_slugs = vlan.get('tags') | default([]) | map(attribute='slug') | list %}
+  {% if demo_tag_slug in tag_slugs %}
+    {% set vlan_name = vlan.get('name') %}
+    {% set vlan_id = vlan.get('vid') %}
+    {% if vlan_name and vlan_id is not none and vlan_name in ns.l2vpn_names and vlan_name not in ns.virtual_network_names %}
+      {% set vnet_entry = {
+        'name': vlan_name,
+        'namespace': 'eda',
+        'spec': {
+          'bridgeDomains': [
+            {
+              'name': vlan_name,
+              'spec': default_bridge_domain_spec
+            }
+          ],
+          'vlans': [
+            {
+              'name': vlan_name,
+              'spec': {
+                'bridgeDomain': vlan_name,
+                'interfaceSelector': ['eda.nokia.com/' ~ vlan_name],
+                'vlanID': vlan_id | string
+              }
+            }
+          ]
+        }
+      } %}
+      {% set ns.virtual_networks = ns.virtual_networks + [vnet_entry] %}
+      {% set ns.virtual_network_names = ns.virtual_network_names + [vlan_name] %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
 {# Assemble TopoNode list #}
 {% for device in netbox_device_records | default([]) %}
-  {% set ctx = device['config_context'] if 'config_context' in device and device['config_context'] else None %}
   {% set custom_fields = device.get('custom_fields') if device.get('custom_fields') else {} %}
-  {% set services_ctx = ctx.get('eda_services') if ctx and ctx.get('eda_services') else None %}
-
-  {% if services_ctx %}
-    {% for edge_iface in services_ctx.get('edge_interfaces', []) %}
-      {% set edge_name = edge_iface.get('name') %}
-      {% if edge_name and edge_name not in ns.edge_interface_names %}
-        {% set ns.edge_interface_names = ns.edge_interface_names + [edge_name] %}
-        {% set ns.edge_interfaces = ns.edge_interfaces + [edge_iface] %}
-      {% endif %}
-    {% endfor %}
-    {% for vnet in services_ctx.get('virtual_networks', []) %}
-      {% set vn_name = vnet.get('name') %}
-      {% if vn_name and vn_name not in ns.virtual_network_names %}
-        {% set ns.virtual_network_names = ns.virtual_network_names + [vn_name] %}
-        {% set ns.virtual_networks = ns.virtual_networks + [vnet] %}
-      {% endif %}
-    {% endfor %}
-  {% endif %}
-
-  {% set version_value = custom_fields.get('version')
-                          | default(device.get('software_version'), true)
-                          | default(ctx.get('software_version') if ctx else None, true)
-                          | default('25.7.2', true) %}
+  {% set version_value = custom_fields.get('version') | default(device.get('software_version'), true) | default('25.7.2', true) %}
   {% set version_str = (version_value | string) | trim %}
-
-  {% set node_profile_name = None %}
-  {% if ctx and ctx.get('node_profile_name') %}
-    {% set node_profile_name = ctx.get('node_profile_name') %}
-  {% elif ctx and ctx.get('node_profile') and ctx['node_profile'].get('name') %}
-    {% set node_profile_name = ctx['node_profile']['name'] %}
-  {% elif custom_fields.get('nodeProfile') %}
-    {% set node_profile_name = custom_fields.get('nodeProfile') %}
-  {% endif %}
+  {% set node_profile_name = custom_fields.get('nodeProfile') %}
   {% if not node_profile_name %}
     {% set node_profile_name = 'srlinux-ghcr-' ~ version_str %}
   {% elif not node_profile_name.startswith('srlinux-ghcr-') %}
     {% set node_profile_name = 'srlinux-ghcr-' ~ version_str %}
   {% endif %}
 
-  {% set security_profile = ctx.get('security_profile') if ctx and 'security_profile' in ctx else None %}
   {% set platform_raw = device.get('device_type', {}).get('model') %}
   {% set platform_clean = platform_raw
                               | default('')
@@ -138,7 +213,10 @@
   {% set operating_system = custom_fields.get('operatingSystem') | default('srl', true) %}
   {% set on_boarded_cf = custom_fields.get('onBoarded') %}
   {% set on_boarded = on_boarded_cf if on_boarded_cf is not none else false %}
-  {% set prod_ip = device['primary_ip4']['address'].split('/') | first if device.get('primary_ip4') else None %}
+  {% set prod_ip = device.get('primary_ip4', {}).get('address') if device.get('primary_ip4') else None %}
+  {% if prod_ip %}
+    {% set prod_ip = prod_ip.split('/') | first %}
+  {% endif %}
 
   {% set node_entry = {
     'name': device['name'],
@@ -147,7 +225,7 @@
     'platform': platform_clean,
     'version': version_str,
     'production_ipv4': prod_ip,
-    'security_profile': security_profile,
+    'security_profile': custom_fields.get('securityProfile'),
     'operating_system': operating_system,
     'on_boarded': on_boarded
   } %}
