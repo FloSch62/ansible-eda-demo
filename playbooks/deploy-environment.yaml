@@ -8,6 +8,12 @@
     - ../vars/fabrics/fabrics.yml
     - ../vars/services/services.yml
   pre_tasks:
+    - name: Cache default edge link definitions
+      ansible.builtin.set_fact:
+        cx_local_edge_topolinks: "{{ topolinks | default([]) | selectattr('name', 'match', '^edge-link-') | list }}"
+        cx_local_edge_interfaces: "{{ topolink_interfaces | default([]) | selectattr('name', 'match', '^edge-') | list }}"
+      when: cx_local_edge_topolinks is not defined
+
     - name: Optionally harvest topology data from NetBox
       when: (topology_source | default('local')) | lower == 'netbox'
       block:
@@ -73,8 +79,8 @@
         - name: Override topology variables with NetBox content
           ansible.builtin.set_fact:
             toponodes: "{{ netbox_topology.toponodes }}"
-            topolink_interfaces: "{{ netbox_topology.topolink_interfaces }}"
-            topolinks: "{{ netbox_topology.topolinks }}"
+            topolink_interfaces: "{{ (netbox_topology.topolink_interfaces | default([])) + (cx_local_edge_interfaces | default([])) }}"
+            topolinks: "{{ (netbox_topology.topolinks | default([])) + (cx_local_edge_topolinks | default([])) }}"
             edge_interfaces: "{{ netbox_topology.edge_interfaces | default(edge_interfaces | default([])) }}"
             virtual_networks: "{{ netbox_topology.virtual_networks | default(virtual_networks | default([])) }}"
 
@@ -110,8 +116,8 @@
     - name: Build Fabric resources
       ansible.builtin.import_tasks: tasks/fabrics.yml
 
-#    - name: Build Virtual Network resources
-#      ansible.builtin.import_tasks: tasks/virtual_networks.yml
+    - name: Build Virtual Network resources
+      ansible.builtin.import_tasks: tasks/virtual_networks.yml
 
     - name: Submit topology transaction
       ansible.builtin.import_tasks: tasks/transaction.yml

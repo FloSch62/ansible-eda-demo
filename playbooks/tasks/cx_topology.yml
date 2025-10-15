@@ -1,11 +1,11 @@
 ---
 - name: Manage CX topology lifecycle
   vars:
-    cx_topology_state: "{{ cx_topology_state | default('present') }}"
-  when: manage_cx_topology | default(false)
+    cx_topology_resolved_state: "{{ cx_topology_state | default('present') }}"
+  when: manage_cx_topology | default(false) | bool
   block:
     - name: Apply CX topology when state is present
-      when: cx_topology_state == 'present'
+      when: cx_topology_resolved_state == 'present'
       block:
         - name: Create temporary workspace for CX topology files
           ansible.builtin.tempfile:
@@ -43,7 +43,7 @@
           when: cx_topology_tmp is defined
 
     - name: Remove CX topology when state is absent
-      when: cx_topology_state == 'absent'
+      when: cx_topology_resolved_state == 'absent'
       ansible.builtin.command:
         cmd: "{{ playbook_dir }}/../tools/topology/topo.sh remove"
       environment:

@@ -1,8 +1,21 @@
 ---
 collections:
   - name: nokia.eda_utils_v1
+    type: file
+    source: ../ansible-collections/utils_v1/nokia-eda_utils_v1-0.3.0.tar.gz
   - name: nokia.eda_apps_core_v1
+    type: file
+    source: ../ansible-collections/apps/core_v1/nokia-eda_apps_core_v1-0.3.0.tar.gz
   - name: nokia.eda_core_v1
+    type: file
+    source: ../ansible-collections/core_v1/nokia-eda_core_v1-0.3.0.tar.gz
   - name: nokia.eda_interfaces_v1alpha1
+    type: file
+    source: ../ansible-collections/apps/interfaces_v1alpha1/nokia-eda_interfaces_v1alpha1-0.3.0.tar.gz
+  - name: nokia.eda_services_v1
+    type: file
+    source: ../ansible-collections/apps/services_v1/nokia-eda_services_v1-0.3.0.tar.gz
   - name: nokia.eda_fabrics_v1alpha1
+    type: file
+    source: ../ansible-collections/apps/fabrics_v1alpha1/nokia-eda_fabrics_v1alpha1-0.3.0.tar.gz
   - name: netbox.netbox

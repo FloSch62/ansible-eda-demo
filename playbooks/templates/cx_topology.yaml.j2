@@ -1,7 +1,7 @@
-{# Build a CX topology YAML combining TopoNodes and TopoLinks. #}
-{% set ns = namespace(nodes=[], links=[]) %}
-{% for node in toponodes %}
-  {% set node_spec = {
+{#- Build a CX topology YAML combining TopoNodes and TopoLinks. -#}
+{%- set ns = namespace(nodes=[], links=[], link_names=[]) -%}
+{%- for node in toponodes -%}
+  {%- set node_spec = {
     'name': node.name,
     'labels': {
       'eda.nokia.com/security-profile': node.security_profile | default('managed', true),
@@ -13,20 +13,71 @@
       'version': node.version,
       'nodeProfile': node.node_profile
     }
-  } %}
-  {% set ns.nodes = ns.nodes + [node_spec] %}
-{% endfor %}
-{% for link in topolinks %}
-  {% set link_entry = {'name': link.name} %}
-  {% if link.labels is defined and link.labels %}
-    {% set link_entry = link_entry | combine({'labels': link.labels}) %}
-  {% endif %}
-  {% if link.encapType is defined and link.encapType %}
-    {% set link_entry = link_entry | combine({'encapType': link.encapType}) %}
-  {% endif %}
-  {% set link_entry = link_entry | combine({'spec': {'links': link.links}}) %}
-  {% set ns.links = ns.links + [link_entry] %}
-{% endfor %}
-{% set topology = {'items': [{'spec': {'nodes': ns.nodes, 'links': ns.links}}]} %}
+  } -%}
+  {%- set ns.nodes = ns.nodes + [node_spec] -%}
+{%- endfor -%}
+{%- for link in topolinks -%}
+  {%- set link_entry = {'name': link.name} -%}
+  {%- if link.labels is defined and link.labels -%}
+    {%- set link_entry = link_entry | combine({'labels': link.labels}) -%}
+  {%- endif -%}
+  {%- if link.encapType is defined and link.encapType -%}
+    {%- set link_entry = link_entry | combine({'encapType': link.encapType}) -%}
+  {%- endif -%}
+  {%- set link_entry = link_entry | combine({'spec': {'links': link.links}}) -%}
+  {%- set ns.links = ns.links + [link_entry] -%}
+  {%- set ns.link_names = ns.link_names + [link_entry.name] -%}
+{%- endfor -%}
+{%- for edge_iface in edge_interfaces | default([]) -%}
+  {%- set link_name = edge_iface.name | regex_replace('^edge-', 'edge-link-') -%}
+  {%- if link_name not in ns.link_names -%}
+    {%- set edge_labels = edge_iface.labels | default({}) -%}
+    {%- set edge_spec = edge_iface.spec if edge_iface.spec is defined else {} -%}
+    {%- set encap_type = edge_spec.encapType if edge_spec and edge_spec.encapType is defined else (edge_iface.encapType if edge_iface.encapType is defined else none) -%}
+    {%- set speed_value = none -%}
+    {%- if edge_spec and edge_spec.ethernet is defined and edge_spec.ethernet.speed is defined -%}
+      {%- set speed_value = edge_spec.ethernet.speed -%}
+    {%- elif edge_iface.ethernet is defined and edge_iface.ethernet.speed is defined -%}
+      {%- set speed_value = edge_iface.ethernet.speed -%}
+    {%- endif -%}
+    {%- set raw_members = [] -%}
+    {%- if edge_spec and edge_spec.members is defined -%}
+      {%- set raw_members = edge_spec.members -%}
+    {%- elif edge_iface.members is defined -%}
+      {%- set raw_members = edge_iface.members -%}
+    {%- endif -%}
+    {%- set member_links = [] -%}
+    {%- for member in raw_members -%}
+      {%- set iface_resource = member.interfaceResource if member.interfaceResource is defined else edge_iface.name -%}
+      {%- set link_item = {
+        'type': 'edge',
+        'local': {
+          'node': member.node,
+          'interface': member.interface,
+          'interfaceResource': iface_resource
+        }
+      } -%}
+      {%- if speed_value -%}
+        {%- set link_item = link_item | combine({'speed': speed_value}) -%}
+      {%- endif -%}
+      {%- set member_links = member_links + [link_item] -%}
+    {%- endfor -%}
+    {%- if member_links -%}
+      {%- set extra_entry = {
+        'name': link_name,
+        'labels': edge_labels,
+        'spec': {
+          'links': member_links
+        }
+      } -%}
+      {%- if encap_type -%}
+        {%- set extra_entry = extra_entry | combine({'encapType': encap_type}) -%}
+      {%- endif -%}
+      {%- set ns.links = ns.links + [extra_entry] -%}
+      {%- set ns.link_names = ns.link_names + [link_name] -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- set topology = {'items': [{'spec': {'nodes': ns.nodes, 'links': ns.links}}]} -%}
 ---
 {{ topology | to_nice_yaml(indent=2) }}
