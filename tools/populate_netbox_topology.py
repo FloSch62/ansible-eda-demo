@@ -133,6 +133,8 @@ def ensure_l2vpn(
     tag_ids: Iterable[int] | None = None,
     custom_fields: Dict[str, Any] | None = None,
 ) -> Any | None:
+    if not hasattr(nb, "vpn"):
+        return None
     slug = slugify(name)
     try:
         l2vpn = nb.vpn.l2vpns.get(slug=slug)
@@ -554,6 +556,7 @@ def main() -> int:
     tag = ensure_tag(nb, DEFAULT_TAG_NAME)
     isl_tag = ensure_tag(nb, ISL_TAG_NAME)
     edge_tag = ensure_tag(nb, EDGE_TAG_NAME)
+    label_tag_cache: Dict[str, Any] = {}
     info("Site and tags ensured.")
 
     # Remove legacy config contexts left by earlier demos.
@@ -922,12 +925,24 @@ def main() -> int:
         )
         edge_labels = edge_def.get("labels", {})
         vlan_targets: List[Any] = []
+        edge_label_tag_ids: Set[int] = set()
         for label_key, label_value in edge_labels.items():
-            if str(label_value).lower() != "true":
+            if isinstance(label_value, bool):
+                label_enabled = label_value
+            else:
+                label_enabled = str(label_value).lower() in {"true", "yes", "on", "1"}
+            if not label_enabled:
                 continue
             vlan_obj = ensure_vlan_from_label(label_key)
             if vlan_obj:
                 vlan_targets.append(vlan_obj)
+            label_tag = label_tag_cache.get(label_key)
+            if label_tag is None:
+                label_tag = ensure_tag(nb, label_key)
+                label_tag_cache[label_key] = label_tag
+            label_tag_id = getattr(label_tag, "id", None)
+            if label_tag_id is not None:
+                edge_label_tag_ids.add(label_tag_id)
 
         spec = edge_def.get("spec") or {}
         service_type = str(spec.get("type") or "").lower()
@@ -957,7 +972,7 @@ def main() -> int:
             if not iface_obj:
                 continue
 
-            desired_tag_ids = sorted({tag.id, edge_tag.id})
+            desired_tag_ids = sorted({tag.id, edge_tag.id}.union(edge_label_tag_ids))
             update_payload: Dict[str, Any] = {"tags": desired_tag_ids}
 
             if vlan_targets:

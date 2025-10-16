@@ -16,7 +16,12 @@
 
 - name: Extend transaction change set with Interfaces
   ansible.builtin.set_fact:
-    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': item.result}}} ] }}"
+    transaction_crs: "{{ (transaction_crs | default([])) + [ {'type': { 'replace': {'value': merged_resource}}} ] }}"
+  vars:
+    input_labels: "{{ item.item.labels | default({}) }}"
+    expected_labels: "{{ {'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(input_labels) }}"
+    merged_labels: "{{ (item.result.metadata.labels | default({})) | combine(expected_labels) }}"
+    merged_resource: "{{ item.result | combine({'metadata': {'labels': merged_labels}}, recursive=True) }}"
   loop: "{{ interface_resource_results | default([]) }}"
   loop_control:
     label: "{{ item.item.name }}"

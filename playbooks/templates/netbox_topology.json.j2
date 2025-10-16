@@ -21,6 +21,8 @@
   '10gbase-x-sfpp': '10G'
 } %}
 
+{% set edge_tag_slug = 'eda-edge' %}
+
 {% for l2vpn in netbox_l2vpn_records | default([]) %}
   {% set l2vpn_name = l2vpn.get('name') %}
   {% if l2vpn_name and l2vpn_name not in ns.l2vpn_names %}
@@ -42,6 +44,36 @@
     {% set resource_name = (device_name ~ '-' ~ iface_name.replace('/', '-')) %}
     {% set ns.interface_lookup = ns.interface_lookup | combine({ (device_name ~ '::' ~ iface_name): resource_name }) %}
     {% set ns.interface_by_id = ns.interface_by_id | combine({ (iface['id'] | string): iface }) %}
+    {% set tag_state = namespace(slugs=[]) %}
+    {% set label_state = namespace(value={}) %}
+    {% for tag in iface.get('tags', []) %}
+      {% if tag is mapping %}
+        {% set tag_slug = tag.get('slug') or tag.get('name') %}
+        {% set tag_name = tag.get('name') %}
+      {% elif tag is string %}
+        {% set tag_slug = tag | lower | regex_replace('[^a-z0-9]+', '-') | trim('-') %}
+        {% set tag_name = tag %}
+      {% else %}
+        {% set tag_slug = None %}
+        {% set tag_name = None %}
+      {% endif %}
+      {% if tag_slug %}
+        {% set tag_state.slugs = tag_state.slugs + [tag_slug] %}
+      {% endif %}
+      {% if tag_name and tag_name.startswith('eda.nokia.com/') %}
+        {% set label_state.value = label_state.value | combine({tag_name: 'true'}) %}
+      {% endif %}
+    {% endfor %}
+    {% if edge_tag_slug in tag_state.slugs %}
+      {% set label_state.value = label_state.value | combine({'eda.nokia.com/role': 'edge'}) %}
+    {% endif %}
+    {% for vlan in iface.get('tagged_vlans', []) %}
+      {% if vlan is mapping and vlan.get('name') %}
+        {% set label_key = 'eda.nokia.com/' ~ vlan.get('name') %}
+        {% set label_state.value = label_state.value | combine({label_key: 'true'}) %}
+      {% endif %}
+    {% endfor %}
+    {% set label_map = label_state.value %}
     {% set iface_entry = {
       'name': resource_name,
       'description': iface.get('description'),
@@ -52,6 +84,9 @@
         }
       ]
     } %}
+    {% if label_map %}
+      {% set iface_entry = iface_entry | combine({'labels': label_map}) %}
+    {% endif %}
     {% set ns.topolink_interfaces = ns.topolink_interfaces + [iface_entry] %}
   {% endif %}
 {% endfor %}
@@ -106,9 +141,30 @@
 {% endfor %}
 
 {# Derive edge interface definitions from NetBox interfaces tagged for edge services #}
-{% set edge_tag_slug = 'eda-edge' %}
 {% for iface in netbox_interface_records | default([]) %}
-  {% set tag_slugs = iface.get('tags') | default([]) | map(attribute='slug') | list %}
+  {% set iface_tags = iface.get('tags') | default([]) %}
+  {% set tag_state = namespace(slugs=[]) %}
+  {% set label_state = namespace(value={'eda.nokia.com/role': 'edge'}) %}
+  {% for tag in iface_tags %}
+    {% if tag is mapping %}
+      {% set tag_slug = tag.get('slug') or tag.get('name') %}
+      {% set tag_name = tag.get('name') %}
+    {% elif tag is string %}
+      {% set tag_slug = tag | lower | regex_replace('[^a-z0-9]+', '-') | trim('-') %}
+      {% set tag_name = tag %}
+    {% else %}
+      {% set tag_slug = None %}
+      {% set tag_name = None %}
+    {% endif %}
+    {% if tag_slug %}
+      {% set tag_state.slugs = tag_state.slugs + [tag_slug] %}
+    {% endif %}
+    {% if tag_name and tag_name.startswith('eda.nokia.com/') %}
+      {% set label_state.value = label_state.value | combine({tag_name: 'true'}) %}
+    {% endif %}
+  {% endfor %}
+  {% set tag_slugs = tag_state.slugs %}
+  {% set label_map = label_state.value %}
   {% if edge_tag_slug in tag_slugs %}
     {% set device_name = iface['device']['name'] %}
     {% set iface_name = iface['name'] %}
@@ -121,13 +177,14 @@
         {% set iface_type_value = iface_type_obj.get('value') %}
       {% endif %}
       {% set iface_speed = speed_map.get(iface_type_value, 'auto') %}
-      {% set label_map = {'eda.nokia.com/role': 'edge'} %}
+      {% set vlan_label_state = namespace(value=label_map) %}
       {% for vlan in iface.get('tagged_vlans', []) %}
         {% if vlan is mapping and vlan.get('name') %}
           {% set label_key = 'eda.nokia.com/' ~ vlan.get('name') %}
-          {% set label_map = label_map | combine({label_key: 'true'}) %}
+          {% set vlan_label_state.value = vlan_label_state.value | combine({label_key: 'true'}) %}
         {% endif %}
       {% endfor %}
+      {% set label_map = vlan_label_state.value %}
       {% set edge_entry = {
         'name': edge_resource,
         'namespace': 'eda',
