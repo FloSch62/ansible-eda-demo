@@ -1,7 +1,7 @@
 ---
 all:
   vars:
-    eda_api_url: "https://your-eda-fqdn.example.com"
+    eda_api_url: "https://100.80.85.2:9443"
     eda_namespace: "eda"
     eda_username: "admin"
     eda_password: "admin"
@@ -16,7 +16,7 @@ all:
     keycloak_eda_realm: "eda"
     transaction_description: "Demo: create NodeProfiles, 5 TopoNodes, interfaces, and TopoLinks"
     topology_source: netbox # set to "netbox" to pull topology data from NetBox
-    netbox_api_endpoint: "https://your-netbox-fqdn.example.com"
+    netbox_api_endpoint: "http://172.22.255.3"
     netbox_topology_tag: "eda-demo-topology"
     netbox_token: "0123456789abcdef0123456789abcdef01234567"
     netbox_validate_certs: false

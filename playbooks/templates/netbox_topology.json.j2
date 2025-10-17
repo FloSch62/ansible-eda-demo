@@ -407,7 +407,8 @@
     'production_ipv4': prod_ip,
     'security_profile': custom_fields.get('securityProfile'),
     'operating_system': operating_system,
-    'on_boarded': on_boarded
+    'on_boarded': on_boarded,
+    'netbox_device_id': device.get('id')
   } %}
   {% set ns.toponodes = ns.toponodes + [node_entry] %}
 {% endfor %}

@@ -425,7 +425,7 @@ def ensure_cable(
 
 
 def main() -> int:
-    netbox_url = os.environ.get("NETBOX_URL", "http://100.82.85.165/")
+    netbox_url = os.environ.get("NETBOX_URL", "http:///172.22.255.3/")
     token = os.environ.get("NETBOX_TOKEN")
     if not token:
         print("NETBOX_TOKEN is required", file=sys.stderr)

@@ -16,6 +16,9 @@
     "onBoarded": {{ 'true' if ((item.on_boarded | default(false)) | bool) else 'false' }},
     "productionAddress": {% if item.production_ipv4 | default(None) %}{
       "ipv4": "{{ item.production_ipv4 }}"
-    }{% else %}{}{% endif %}
+    }{% else %}{}{% endif %},
+    "npp": {
+      "mode": "normal"
+    }
   }
 }

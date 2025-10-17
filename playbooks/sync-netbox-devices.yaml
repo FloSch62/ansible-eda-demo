@@ -1,0 +1,235 @@
+---
+- name: Sync NetBox devices into Nokia EDA
+  hosts: localhost
+  gather_facts: false
+  vars:
+    transaction_description: "{{ netbox_transaction_description | default('Sync NetBox devices from NetBox') }}"
+    transaction_dry_run: "{{ netbox_transaction_dry_run | default(false) }}"
+    transaction_payload_path: "{{ playbook_dir }}/artifacts/netbox-device-transaction.json"
+  pre_tasks:
+    - name: Validate NetBox connection variables
+      ansible.builtin.assert:
+        that:
+          - netbox_api_endpoint is defined
+          - netbox_api_endpoint | length > 0
+          - netbox_token is defined
+          - netbox_token | length > 0
+          - netbox_topology_tag is defined
+          - netbox_topology_tag | length > 0
+        fail_msg: >-
+          Provide netbox_api_endpoint, netbox_token, and netbox_topology_tag to sync devices from NetBox.
+
+    - name: Fetch tagged NetBox devices
+      ansible.builtin.set_fact:
+        netbox_devices: >-
+          {{ lookup('netbox.netbox.nb_lookup', 'devices',
+                    api_endpoint=netbox_api_endpoint,
+                    token=netbox_token,
+                    validate_certs=netbox_validate_certs | default(true),
+                    api_filter='tag=' ~ netbox_topology_tag) }}
+
+    - name: Normalize NetBox lookup result
+      ansible.builtin.set_fact:
+        netbox_device_records: "{{ netbox_devices | default([]) | map(attribute='value') | list }}"
+
+    - name: Ensure NetBox returned devices
+      ansible.builtin.assert:
+        that:
+          - netbox_device_records | length > 0
+        fail_msg: >-
+          No NetBox devices matched tag "{{ netbox_topology_tag }}". Update the tag or populate NetBox and retry.
+
+    - name: Build topology dictionary from NetBox data
+      ansible.builtin.set_fact:
+        netbox_topology: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/netbox_topology.json.j2') | from_json }}"
+
+    - name: Extract TopoNode definitions
+      ansible.builtin.set_fact:
+        toponodes: "{{ netbox_topology.toponodes | default([]) }}"
+
+    - name: Ensure TopoNodes were derived from NetBox data
+      ansible.builtin.assert:
+        that:
+          - toponodes | length > 0
+        fail_msg: >-
+          NetBox topology template produced no TopoNodes. Verify NetBox data and custom fields.
+
+    - name: Initialise NetBox device lookup map
+      ansible.builtin.set_fact:
+        netbox_device_lookup: {}
+
+    - name: Populate NetBox device lookup map
+      ansible.builtin.set_fact:
+        netbox_device_lookup: "{{ netbox_device_lookup | combine({ item.name: item.id }) }}"
+      loop: "{{ netbox_device_records }}"
+      when:
+        - item.name is defined
+        - item.id is defined
+      loop_control:
+        label: "{{ item.name | default('device') }}"
+
+    - name: Initialise pending NetBox onboarding list
+      ansible.builtin.set_fact:
+        netbox_pending_onboard_devices: []
+
+    - name: Record devices awaiting onboard confirmation
+      ansible.builtin.set_fact:
+        netbox_pending_onboard_devices: >-
+          {{ netbox_pending_onboard_devices + [
+            {
+              'name': item.name,
+              'device_id': device_id
+            }
+          ] }}
+      vars:
+        device_id: "{{ netbox_device_lookup[item.name] | default(None) }}"
+      loop: "{{ toponodes }}"
+      when:
+        - (item.on_boarded | default(false)) | bool == false
+        - device_id is not none
+      loop_control:
+        label: "{{ item.name }}"
+
+  tasks:
+    - name: Authenticate with Nokia EDA
+      ansible.builtin.import_tasks: tasks/authenticate.yml
+
+    - name: Build TopoNode custom resources
+      ansible.builtin.import_tasks: tasks/toponodes.yml
+
+    - name: Initialize transaction change set
+      ansible.builtin.set_fact:
+        transaction_crs: []
+
+    - name: Append TopoNode change requests
+      ansible.builtin.set_fact:
+        transaction_crs: "{{ transaction_crs + [ {'type': { 'replace': { 'value': item.result } }} ] }}"
+      loop: "{{ topo_crs.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Ensure transaction has change requests
+      ansible.builtin.assert:
+        that:
+          - transaction_crs | length > 0
+        fail_msg: No TopoNode change requests were generated for the transaction.
+
+    - name: Prepare transaction request body
+      ansible.builtin.set_fact:
+        transaction_request_body: >-
+          {{ {
+            'description': transaction_description,
+            'dryRun': transaction_dry_run | bool,
+            'resultType': 'normal',
+            'retain': True,
+            'crs': transaction_crs
+          } }}
+
+    - name: Ensure transaction artifact directory exists
+      ansible.builtin.file:
+        path: "{{ transaction_payload_path | dirname }}"
+        state: directory
+        mode: '0755'
+
+    - name: Write transaction request body to disk
+      ansible.builtin.copy:
+        dest: "{{ transaction_payload_path }}"
+        mode: '0644'
+        content: "{{ transaction_request_body | to_nice_json(indent=2) }}"
+
+    - name: Submit NetBox device transaction
+      nokia.eda_core_v1.transaction.v2.transaction:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        description: "{{ transaction_request_body.description }}"
+        dryRun: "{{ transaction_request_body.dryRun | bool }}"
+        resultType: "{{ transaction_request_body.resultType }}"
+        retain: "{{ transaction_request_body.retain | bool }}"
+        crs: "{{ transaction_request_body.crs }}"
+      register: netbox_transaction
+
+    - name: Display transaction identifier
+      ansible.builtin.debug:
+        msg: >-
+          Submitted {{ 'dry run ' if transaction_dry_run | bool else '' }}transaction {{ netbox_transaction.result.id }}
+          with {{ transaction_crs | length }} TopoNode change request(s).
+
+    - name: Wait for transaction completion
+      when: not (transaction_dry_run | bool)
+      nokia.eda_core_v1.transaction.v2.result.execution:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        transactionId: "{{ netbox_transaction.result.id }}"
+        waitForComplete: true
+        failOnErrors: true
+      register: netbox_transaction_execution
+
+    - name: Report transaction outcome
+      when: not (transaction_dry_run | bool)
+      ansible.builtin.debug:
+        msg:
+          summary: "Transaction {{ netbox_transaction.result.id }} completed: {{ netbox_transaction_execution.result.executionSummary | default('no summary returned') | replace('µ', 'u') }}."
+          changed_crs: "{{ netbox_transaction_execution.result.changedCrs | default([]) | length }}"
+
+    - name: Reconcile NetBox onboarded flag from EDA state
+      when:
+        - not (transaction_dry_run | bool)
+        - (netbox_pending_onboard_devices | length) > 0
+      block:
+        - name: Wait for TopoNode to report onboarded in EDA
+          nokia.eda_apps_core_v1.toponode:
+            base_url: "{{ eda_api_url }}"
+            auth_token: "{{ eda_auth_token }}"
+            tls_skip_verify: "{{ tls_skip_verify | bool }}"
+            state: query
+            name: "{{ item.name }}"
+            namespace: "{{ eda_namespace }}"
+          register: eda_onboard_poll
+          vars:
+            eda_poll_debug_path: "{{ playbook_dir }}/artifacts/eda-toponode-{{ item.name }}.json"
+          notify:
+            - Write EDA poll debug artifact
+          until: >-
+            {{
+              (eda_onboard_poll.result is defined)
+              and (
+                eda_onboard_poll.result.get('result', {}).get('spec', {}).get('onBoarded', false)
+                or eda_onboard_poll.result.get('spec', {}).get('onBoarded', false)
+                or eda_onboard_poll.result.get('result', {}).get('status', {}).get('onBoarded', false)
+                or eda_onboard_poll.result.get('status', {}).get('onBoarded', false)
+              )
+            }}
+          retries: "{{ netbox_onboard_poll_retries | default(20) }}"
+          delay: "{{ netbox_onboard_poll_interval | default(15) }}"
+          loop: "{{ netbox_pending_onboard_devices }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Update NetBox device onboarded flag
+          ansible.builtin.uri:
+            url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/dcim/devices/' ~ (item.device_id | string) ~ '/' }}"
+            method: PATCH
+            headers:
+              Authorization: "Token {{ netbox_token }}"
+              Content-Type: application/json
+            body_format: json
+            body:
+              custom_fields:
+                onBoarded: true
+            validate_certs: "{{ netbox_validate_certs | default(true) }}"
+            status_code: [200, 204]
+            timeout: 30
+          loop: "{{ netbox_pending_onboard_devices }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+  handlers:
+    - name: Write EDA poll debug artifact
+      vars:
+        eda_poll_debug_path: "{{ eda_poll_debug_path }}"
+      ansible.builtin.copy:
+        dest: "{{ eda_poll_debug_path }}"
+        mode: '0644'
+        content: "{{ eda_onboard_poll | to_nice_json(indent=2) }}"
