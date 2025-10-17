@@ -28,19 +28,18 @@
   {% if l2vpn_name and l2vpn_name not in ns.l2vpn_names %}
     {% set ns.l2vpn_names = ns.l2vpn_names + [l2vpn_name] %}
   {% endif %}
-  {% set l2_meta = namespace(data={}) %}
-  {% set l2_comments = l2vpn.get('comments') %}
-  {% if l2_comments %}
-    {% set parsed_meta = l2_comments | from_yaml %}
-    {% if parsed_meta is mapping %}
-      {% if parsed_meta.get('eda') is mapping %}
-        {% set l2_meta.data = parsed_meta.get('eda') %}
-      {% else %}
-        {% set l2_meta.data = parsed_meta %}
-      {% endif %}
-    {% endif %}
+  {% set l2_cf = l2vpn.get('custom_fields') if l2vpn.get('custom_fields') else {} %}
+  {% set ip_vrf_cf = l2_cf.get('L2vpn_ipvrf') %}
+  {% if ip_vrf_cf is mapping %}
+    {% set parent_name = ip_vrf_cf.get('name') %}
+  {% else %}
+    {% set parent_name = ip_vrf_cf %}
   {% endif %}
-  {% set parent_list = l2_meta.data.get('parent_vrfs') | default([]) %}
+  {% if parent_name %}
+    {% set parent_list = [parent_name] %}
+  {% else %}
+    {% set parent_list = [] %}
+  {% endif %}
   {% if parent_list %}
     {% set ns.l2vpn_parent_map = ns.l2vpn_parent_map | combine({l2vpn_name: parent_list}) %}
   {% endif %}
@@ -297,23 +296,22 @@
   {% set irb_ns = namespace(entries=[]) %}
 
   {% for l2vpn in netbox_l2vpn_records | default([]) %}
-    {% set l2_meta = namespace(data={}) %}
-    {% set l2_comments = l2vpn.get('comments') %}
-    {% if l2_comments %}
-      {% set parsed_meta = l2_comments | from_yaml %}
-      {% if parsed_meta is mapping %}
-        {% if parsed_meta.get('eda') is mapping %}
-          {% set l2_meta.data = parsed_meta.get('eda') %}
-        {% else %}
-          {% set l2_meta.data = parsed_meta %}
-        {% endif %}
-      {% endif %}
+    {% set l2_cf = l2vpn.get('custom_fields') if l2vpn.get('custom_fields') else {} %}
+    {% set ip_vrf_cf = l2_cf.get('L2vpn_ipvrf') %}
+    {% if ip_vrf_cf is mapping %}
+      {% set parent_name = ip_vrf_cf.get('name') %}
+    {% else %}
+      {% set parent_name = ip_vrf_cf %}
     {% endif %}
-    {% set parent_list = l2_meta.data.get('parent_vrfs') | default([]) %}
+    {% if parent_name %}
+      {% set parent_list = [parent_name] %}
+    {% else %}
+      {% set parent_list = [] %}
+    {% endif %}
     {% if vrf_name in parent_list %}
       {% set bd_name = l2vpn.get('name') %}
       {% if bd_name and bd_name not in bd_ns.names %}
-        {% set bd_spec = l2_meta.data.get('bridge_domain') %}
+        {% set bd_spec = l2_cf.get('L2vpn_bridge_domain_spec') %}
         {% if bd_spec is not mapping %}
           {% set bd_spec = default_bridge_domain_spec %}
         {% endif %}
@@ -335,7 +333,6 @@
           {% endif %}
         {% endif %}
 
-        {% set l2_cf = l2vpn.get('custom_fields') if l2vpn.get('custom_fields') else {} %}
         {% set gateway_cf = l2_cf.get('L2vpn_gateway') %}
         {% if gateway_cf is mapping %}
           {% set gateway_ip = gateway_cf.get('display') or gateway_cf.get('address') or gateway_cf.get('name') %}

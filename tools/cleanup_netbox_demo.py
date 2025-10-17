@@ -24,6 +24,7 @@ DEVICE_CUSTOM_FIELDS = [
 L2VPN_CUSTOM_FIELDS = [
     "L2vpn_gateway",
     "L2vpn_ipvrf",
+    "L2vpn_bridge_domain_spec",
 ]
 
 

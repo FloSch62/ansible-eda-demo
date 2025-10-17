@@ -68,6 +68,11 @@ L2VPN_CUSTOM_FIELDS = {
         "description": "Associated IP VRF for L2VPN.",
         "object_type": "ipam.vrf",
     },
+    "L2vpn_bridge_domain_spec": {
+        "type": "json",
+        "label": "Bridge Domain Spec",
+        "description": "Bridge domain specification for Nokia EDA.",
+    },
 }
 
 
@@ -391,7 +396,6 @@ def ensure_l2vpn(
     identifier: Optional[int],
     description: str,
     tag_ids: Iterable[int],
-    metadata: Dict[str, Any],
     custom_fields: Optional[Dict[str, Any]] = None,
 ) -> Optional[Any]:
     if not hasattr(nb, "vpn"):
@@ -402,7 +406,6 @@ def ensure_l2vpn(
         "type": "vxlan-evpn",
         "status": "active",
         "tags": list(tag_ids),
-        "comments": json.dumps({"eda": metadata}),
     }
     if identifier is not None:
         payload["identifier"] = identifier
@@ -577,10 +580,9 @@ def ensure_services(
                     l2_identifier = int(str(vlan_def.get("spec", {}).get("vlanID")))
                 except (TypeError, ValueError):
                     l2_identifier = None
-            metadata: Dict[str, Any] = {"bridge_domain": bd.source_spec}
-            if router_names:
-                metadata["parent_vrfs"] = router_names
-            custom_fields: Dict[str, Any] = {}
+            custom_fields: Dict[str, Any] = {
+                "L2vpn_bridge_domain_spec": bd.source_spec,
+            }
             if bd.gateway:
                 ip_obj = ensure_ipam_address(
                     nb,
@@ -597,7 +599,6 @@ def ensure_services(
                 identifier=l2_identifier,
                 description=f"EDA demo bridge domain {bd_name}",
                 tag_ids=tag_ids,
-                metadata=metadata,
                 custom_fields=custom_fields or None,
             )
             if l2vpn:
