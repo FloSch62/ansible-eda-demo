@@ -176,6 +176,8 @@ def ensure_custom_field_definition(
         payload["default"] = definition["default"]
     if "object_type" in definition:
         payload["related_object_type"] = definition["object_type"]
+    if definition.get("many"):
+        payload["many"] = True
 
     cf = cf_api.get(name=name)
     if cf:
@@ -283,6 +285,10 @@ def ensure_interface(
     iface_type: str,
     description: Optional[str] = None,
     tag_ids: Optional[Iterable[int]] = None,
+    parent_id: Optional[int] = None,
+    mode: Optional[str] = None,
+    untagged_vlan_id: Optional[int] = None,
+    tagged_vlan_ids: Optional[Iterable[int]] = None,
 ) -> Any:
     iface = nb.dcim.interfaces.get(device_id=device_id, name=name)
     payload = {
@@ -295,6 +301,14 @@ def ensure_interface(
         payload["description"] = description
     if tag_ids:
         payload["tags"] = list(tag_ids)
+    if parent_id:
+        payload["parent"] = parent_id
+    if mode:
+        payload["mode"] = mode
+    if untagged_vlan_id:
+        payload["untagged_vlan"] = untagged_vlan_id
+    if tagged_vlan_ids:
+        payload["tagged_vlans"] = list(tagged_vlan_ids)
     if iface:
         iface.update(payload)
         return nb.dcim.interfaces.get(id=iface.id)
@@ -432,6 +446,47 @@ def ensure_label_tag(nb: pynetbox.api.Api, *, label: str) -> Any:
     return nb.extras.tags.create({"name": label, "slug": slug, "color": "5e35b1"})
 
 
+def ensure_l2vpn_termination(
+    nb: pynetbox.api.Api,
+    *,
+    l2vpn_id: int,
+    interface_id: int,
+    term_side: str = "A",
+) -> Optional[Any]:
+    if not hasattr(nb, "vpn"):
+        return None
+    existing_terms = list(nb.vpn.l2vpn_terminations.filter(l2vpn_id=l2vpn_id, limit=0))
+    for term in existing_terms:
+        if (
+            getattr(term, "assigned_object_type", "") == "dcim.interface"
+            and getattr(term, "assigned_object_id", None) == interface_id
+            and getattr(term, "term_side", term_side) == term_side
+        ):
+            return term
+
+    url = f"{nb.base_url}/vpn/l2vpn-terminations/"
+    headers = {
+        "Authorization": f"Token {nb.token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "l2vpn": l2vpn_id,
+        "term_side": term_side,
+        "assigned_object_type": "dcim.interface",
+        "assigned_object_id": interface_id,
+    }
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    if response.status_code not in (200, 201):
+        raise RuntimeError(
+            f"Failed to create L2VPN termination (l2vpn={l2vpn_id}, interface={interface_id}): "
+            f"{response.status_code} {response.text}"
+        )
+    term_id = response.json().get("id")
+    if not term_id:
+        raise RuntimeError("L2VPN termination create response missing id field")
+    return nb.vpn.l2vpn_terminations.get(id=term_id)
+
+
 def interface_type_for_speed(speed: Optional[str]) -> str:
     if not speed:
         return FABRIC_INTERFACE_TYPE
@@ -534,6 +589,9 @@ def ensure_services(
     devices: Dict[str, Any],
 ) -> None:
     vlan_lookup: Dict[str, Any] = {}
+    l2vpn_lookup: Dict[str, Any] = {}
+    l2vpn_interfaces: Dict[str, Dict[int, Dict[str, Any]]] = {}
+    l2vpn_lookup: Dict[str, Any] = {}
 
     for vnet in vnets:
         router_names = [router.get("name") for router in vnet.routers if router.get("name")]
@@ -603,6 +661,7 @@ def ensure_services(
             )
             if l2vpn:
                 info(f"Ensured L2VPN {l2vpn.name} (id={l2vpn.id}).")
+                l2vpn_lookup[l2vpn.name] = l2vpn
 
     for edge in edge_specs:
         label_objects: List[Any] = []
@@ -614,7 +673,9 @@ def ensure_services(
                 tag = ensure_label_tag(nb, label=label_key)
                 label_tag_cache[label_key] = tag
             label_objects.append(tag)
+
         vlan_ids: List[int] = []
+        l2vpn_refs: List[str] = []
         for label_key in edge.labels.keys():
             if not label_key.startswith("eda.nokia.com/macvrf"):
                 continue
@@ -633,6 +694,8 @@ def ensure_services(
             )
             vlan_lookup[suffix] = vlan_obj
             vlan_ids.append(vlan_obj.id)
+            if suffix in l2vpn_lookup:
+                l2vpn_refs.append(suffix)
 
         for member in edge.members:
             node = member.get("node")
@@ -658,12 +721,14 @@ def ensure_services(
                 )
                 interface_cache.setdefault(node, {})[iface_name] = new_iface
                 iface = new_iface
+
             desired_type = interface_type_for_speed(edge.speed)
             current_type = getattr(getattr(iface, "type", None), "value", None)
             if current_type != desired_type:
                 iface.update({"type": desired_type})
                 iface = nb.dcim.interfaces.get(id=iface.id)
                 interface_cache[node][iface_name] = iface
+
             existing_tag_ids = {
                 tag.id
                 for tag in getattr(iface, "tags", [])
@@ -671,12 +736,43 @@ def ensure_services(
             }
             edge_tag_ids = {tag.id for tag in label_objects}
             desired_tag_ids = existing_tag_ids | edge_tag_ids | {edge_tag_id}
-            payload = {"tags": sorted(desired_tag_ids)}
-            if vlan_ids:
-                payload["mode"] = "tagged"
-                payload["tagged_vlans"] = sorted(set(vlan_ids))
+            payload = {
+                "tags": sorted(desired_tag_ids),
+                "mode": "access",
+                "untagged_vlan": None,
+                "tagged_vlans": [],
+            }
             iface.update(payload)
             interface_cache[node][iface_name] = nb.dcim.interfaces.get(id=iface.id)
+
+            if l2vpn_refs:
+                for l2vpn_name in sorted(set(l2vpn_refs)):
+                    l2vpn_obj = l2vpn_lookup.get(l2vpn_name)
+                    vlan_obj = vlan_lookup.get(l2vpn_name)
+                    if not l2vpn_obj or not vlan_obj:
+                        continue
+                    subiface_name = (
+                        f"{iface_name}.{getattr(vlan_obj, 'vid', 0)}"
+                        if getattr(vlan_obj, "vid", None) is not None
+                        else f"{iface_name}.0"
+                    )
+                    subiface = ensure_interface(
+                        nb,
+                        device_id=iface.device.id,
+                        name=subiface_name,
+                        iface_type="virtual",
+                        description=f"{edge.name} {l2vpn_name}",
+                        tag_ids=sorted(desired_tag_ids),
+                        parent_id=iface.id,
+                        mode="tagged",
+                        tagged_vlan_ids=[vlan_obj.id],
+                    )
+                    ensure_l2vpn_termination(
+                        nb,
+                        l2vpn_id=l2vpn_obj.id,
+                        interface_id=subiface.id,
+                    )
+                    interface_cache.setdefault(node, {})[subiface_name] = subiface
 
 
 def main() -> int:

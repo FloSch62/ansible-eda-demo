@@ -1,0 +1,200 @@
+{
+  "crs": [
+    {
+      "type": {
+        "replace": {
+          "value": {
+            "apiVersion": "core.eda.nokia.com/v1",
+            "kind": "TopoNode",
+            "metadata": {
+              "labels": {
+                "demo.nokia.com/source": "uv-ansible-toponodes",
+                "eda.nokia.com/role": "leaf",
+                "eda.nokia.com/security-profile": "managed"
+              },
+              "name": "demo-leaf-1",
+              "namespace": "eda"
+            },
+            "spec": {
+              "nodeProfile": "srlinux-ghcr-25.7.1",
+              "npp": {
+                "mode": "normal"
+              },
+              "onBoarded": false,
+              "operatingSystem": "srl",
+              "platform": "7220 IXR-D2",
+              "productionAddress": {
+                "ipv4": "198.51.100.21"
+              },
+              "version": "25.7.1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": {
+        "replace": {
+          "value": {
+            "apiVersion": "core.eda.nokia.com/v1",
+            "kind": "TopoNode",
+            "metadata": {
+              "labels": {
+                "demo.nokia.com/source": "uv-ansible-toponodes",
+                "eda.nokia.com/role": "leaf",
+                "eda.nokia.com/security-profile": "managed"
+              },
+              "name": "demo-leaf-2",
+              "namespace": "eda"
+            },
+            "spec": {
+              "nodeProfile": "srlinux-ghcr-25.7.1",
+              "npp": {
+                "mode": "normal"
+              },
+              "onBoarded": false,
+              "operatingSystem": "srl",
+              "platform": "7220 IXR-D2",
+              "productionAddress": {
+                "ipv4": "198.51.100.22"
+              },
+              "version": "25.7.1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": {
+        "replace": {
+          "value": {
+            "apiVersion": "core.eda.nokia.com/v1",
+            "kind": "TopoNode",
+            "metadata": {
+              "labels": {
+                "demo.nokia.com/source": "uv-ansible-toponodes",
+                "eda.nokia.com/role": "leaf",
+                "eda.nokia.com/security-profile": "managed"
+              },
+              "name": "demo-leaf-3",
+              "namespace": "eda"
+            },
+            "spec": {
+              "nodeProfile": "srlinux-ghcr-25.7.1",
+              "npp": {
+                "mode": "normal"
+              },
+              "onBoarded": false,
+              "operatingSystem": "srl",
+              "platform": "7220 IXR-D2",
+              "productionAddress": {
+                "ipv4": "198.51.100.23"
+              },
+              "version": "25.7.1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": {
+        "replace": {
+          "value": {
+            "apiVersion": "core.eda.nokia.com/v1",
+            "kind": "TopoNode",
+            "metadata": {
+              "labels": {
+                "demo.nokia.com/source": "uv-ansible-toponodes",
+                "eda.nokia.com/role": "leaf",
+                "eda.nokia.com/security-profile": "managed"
+              },
+              "name": "demo-leaf-4",
+              "namespace": "eda"
+            },
+            "spec": {
+              "nodeProfile": "srlinux-ghcr-25.7.1",
+              "npp": {
+                "mode": "normal"
+              },
+              "onBoarded": false,
+              "operatingSystem": "srl",
+              "platform": "7220 IXR-D2",
+              "productionAddress": {
+                "ipv4": "198.51.100.24"
+              },
+              "version": "25.7.1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": {
+        "replace": {
+          "value": {
+            "apiVersion": "core.eda.nokia.com/v1",
+            "kind": "TopoNode",
+            "metadata": {
+              "labels": {
+                "demo.nokia.com/source": "uv-ansible-toponodes",
+                "eda.nokia.com/role": "spine",
+                "eda.nokia.com/security-profile": "managed"
+              },
+              "name": "demo-spine-1",
+              "namespace": "eda"
+            },
+            "spec": {
+              "nodeProfile": "srlinux-ghcr-25.7.2",
+              "npp": {
+                "mode": "normal"
+              },
+              "onBoarded": false,
+              "operatingSystem": "srl",
+              "platform": "7220 IXR-D3L",
+              "productionAddress": {
+                "ipv4": "198.51.100.11"
+              },
+              "version": "25.7.2"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": {
+        "replace": {
+          "value": {
+            "apiVersion": "core.eda.nokia.com/v1",
+            "kind": "TopoNode",
+            "metadata": {
+              "labels": {
+                "demo.nokia.com/source": "uv-ansible-toponodes",
+                "eda.nokia.com/role": "spine",
+                "eda.nokia.com/security-profile": "managed"
+              },
+              "name": "demo-spine-2",
+              "namespace": "eda"
+            },
+            "spec": {
+              "nodeProfile": "srlinux-ghcr-25.7.2",
+              "npp": {
+                "mode": "normal"
+              },
+              "onBoarded": false,
+              "operatingSystem": "srl",
+              "platform": "7220 IXR-D3L",
+              "productionAddress": {
+                "ipv4": "198.51.100.12"
+              },
+              "version": "25.7.2"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "description": "Sync NetBox devices from NetBox",
+  "dryRun": false,
+  "resultType": "normal",
+  "retain": true
+}
