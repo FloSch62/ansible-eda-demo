@@ -15,6 +15,16 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_TAG_NAME = "eda-demo-topology"
 EDGE_TAG_NAME = "EDA Edge"
 ISL_TAG_NAME = "ISL"
+DEVICE_CUSTOM_FIELDS = [
+    "operatingSystem",
+    "version",
+    "onBoarded",
+    "nodeProfile",
+]
+L2VPN_CUSTOM_FIELDS = [
+    "L2vpn_gateway",
+    "L2vpn_ipvrf",
+]
 
 
 def info(message: str) -> None:
@@ -70,21 +80,31 @@ def main() -> int:
         "tags": 0,
     }
 
-    devices = list_records(nb.dcim.devices.filter(tag=DEFAULT_TAG_NAME, limit=0))
-    totals["devices"] = delete_records(devices, "device")
+    demo_tag = nb.extras.tags.get(name=DEFAULT_TAG_NAME)
+    if demo_tag:
+        devices = list_records(nb.dcim.devices.filter(tag=DEFAULT_TAG_NAME, limit=0))
+        totals["devices"] = delete_records(devices, "device")
 
-    cables = list_records(nb.dcim.cables.filter(tag=DEFAULT_TAG_NAME, limit=0))
-    totals["cables"] = delete_records(cables, "cable")
+        cables = list_records(nb.dcim.cables.filter(tag=DEFAULT_TAG_NAME, limit=0))
+        totals["cables"] = delete_records(cables, "cable")
 
-    vlans = list_records(nb.ipam.vlans.filter(tag=DEFAULT_TAG_NAME, limit=0))
-    totals["vlans"] = delete_records(vlans, "VLAN")
+        if hasattr(nb, "vpn"):
+            l2vpns = list_records(nb.vpn.l2vpns.filter(tag=DEFAULT_TAG_NAME, limit=0))
+            totals["l2vpns"] = delete_records(l2vpns, "L2VPN")
+        else:
+            l2vpns = []
 
-    vrfs = list_records(nb.ipam.vrfs.filter(tag=DEFAULT_TAG_NAME, limit=0))
-    totals["vrfs"] = delete_records(vrfs, "VRF")
+        vrfs = list_records(nb.ipam.vrfs.filter(tag=DEFAULT_TAG_NAME, limit=0))
+        for vrf in vrfs:
+            ip_records = list_records(nb.ipam.ip_addresses.filter(vrf_id=vrf.id, limit=0))
+            if ip_records:
+                totals["ip_addresses"] += delete_records(ip_records, "IP address")
+        totals["vrfs"] = delete_records(vrfs, "VRF")
 
-    if hasattr(nb, "vpn"):
-        l2vpns = list_records(nb.vpn.l2vpns.filter(tag=DEFAULT_TAG_NAME, limit=0))
-        totals["l2vpns"] = delete_records(l2vpns, "L2VPN")
+        vlans = list_records(nb.ipam.vlans.filter(tag=DEFAULT_TAG_NAME, limit=0))
+        totals["vlans"] = delete_records(vlans, "VLAN")
+    else:
+        l2vpns = []
 
     ips = load_toponode_ips()
     for ip in ips:
@@ -108,6 +128,13 @@ def main() -> int:
     info("NetBox cleanup summary:")
     for key, value in totals.items():
         info(f"  - {key.replace('_', ' ').title()}: {value}")
+
+    # Remove demo custom fields if present (order: L2VPN first, then devices).
+    for field_name in L2VPN_CUSTOM_FIELDS + DEVICE_CUSTOM_FIELDS:
+        custom_field = nb.extras.custom_fields.get(name=field_name)
+        if custom_field:
+            info(f"Deleting custom field: {field_name}")
+            custom_field.delete()
 
     return 0
 
