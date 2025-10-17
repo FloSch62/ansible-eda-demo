@@ -1,47 +1,134 @@
 #!/usr/bin/env python3
-"""Populate NetBox with topology data derived from the local YAML vars.
-
-The script creates device roles, platforms, devices, interfaces, cables, and
-config contexts that mirror the demo topology stored under vars/topology.
-
-Expected environment variables:
-  NETBOX_URL   - base URL of the NetBox instance (e.g. http://127.0.0.1/)
-  NETBOX_TOKEN - API token with write permission.
-"""
+"""Populate NetBox with demo topology data using local YAML definitions."""
 
 from __future__ import annotations
 
-import ipaddress
+import json
 import os
 import sys
-from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Optional
 
 import pynetbox
-from pynetbox.core.query import RequestError
-import yaml
 import requests
+import yaml
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SITE_NAME = "EDA Demo"
 DEFAULT_TAG_NAME = "eda-demo-topology"
-ISL_TAG_NAME = "ISL"
 EDGE_TAG_NAME = "EDA Edge"
-EDGE_LAG_CF_NAME = "edaEdgeLagId"
-VRF_SPEC_CF_NAME = "edaVrfSpec"
-BD_SPEC_CF_NAME = "edaBridgeDomainSpec"
-BD_PARENT_VRF_CF_NAME = "edaParentIpVrf"
-BD_GATEWAY_IP_CF_NAME = "edaGatewayIp"
+ISL_TAG_NAME = "ISL"
+
+EDGE_INTERFACE_TYPE = "10gbase-x-sfpp"
+FABRIC_INTERFACE_TYPE = "100gbase-x-qsfp28"
+MGMT_INTERFACE_TYPE = "virtual"
+
+SPEED_TO_INTERFACE_TYPE = {
+    "10G": EDGE_INTERFACE_TYPE,
+    "25G": "25gbase-x-sfp28",
+    "40G": "40gbase-qsfpp",
+    "100G": FABRIC_INTERFACE_TYPE,
+}
+
+DEVICE_CUSTOM_FIELDS = {
+    "operatingSystem": {
+        "type": "text",
+        "label": "Operating System",
+        "description": "Operating system reported to Nokia EDA",
+    },
+    "version": {
+        "type": "text",
+        "label": "Software Version",
+        "description": "Software version reported to Nokia EDA",
+    },
+    "onBoarded": {
+        "type": "boolean",
+        "label": "On-boarded",
+        "description": "Whether the node has been onboarded into Nokia EDA",
+        "default": False,
+    },
+    "nodeProfile": {
+        "type": "text",
+        "label": "Node Profile",
+        "description": "Nokia EDA NodeProfile name referenced by the device",
+    },
+}
+
+L2VPN_CUSTOM_FIELDS = {
+    "L2vpn_gateway": {
+        "type": "object",
+        "label": "Gateway",
+        "description": "Gateway IP address for L2VPN.",
+        "object_type": "ipam.ipaddress",
+    },
+    "L2vpn_ipvrf": {
+        "type": "object",
+        "label": "IP-VRF",
+        "description": "Associated IP VRF for L2VPN.",
+        "object_type": "ipam.vrf",
+    },
+}
+
+
+@dataclass
+class EdgeInterfaceSpec:
+    name: str
+    labels: Dict[str, Any]
+    members: List[Dict[str, Any]]
+    speed: Optional[str]
+
+
+@dataclass
+class BridgeDomainSpec:
+    name: str
+    source_spec: Dict[str, Any]
+    gateway: Optional[str]
+
+
+@dataclass
+class VirtualNetworkSpec:
+    name: str
+    namespace: str
+    routers: List[Dict[str, Any]]
+    bridge_domains: List[BridgeDomainSpec]
+    vlans: List[Dict[str, Any]]
+
+
+class TopologyLoader:
+    """Load demo topology YAML definitions."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def load_yaml(self, relative_path: str) -> Dict[str, Any]:
+        path = self.root / relative_path
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected mapping at {path}, got {type(data).__name__}")
+        return data
+
+    def toponodes(self) -> List[Dict[str, Any]]:
+        return self.load_yaml("vars/topology/toponodes.yml").get("toponodes", []) or []
+
+    def topolink_interfaces(self) -> List[Dict[str, Any]]:
+        return self.load_yaml("vars/topology/topolinks.yml").get(
+            "topolink_interfaces", []
+        ) or []
+
+    def topolinks(self) -> List[Dict[str, Any]]:
+        return self.load_yaml("vars/topology/topolinks.yml").get("topolinks", []) or []
+
+    def services(self) -> Dict[str, Any]:
+        path = self.root / "vars/services/services.yml"
+        if not path.exists():
+            return {"edge_interfaces": [], "virtual_networks": []}
+        return self.load_yaml("vars/services/services.yml")
 
 
 def info(message: str) -> None:
     print(message, flush=True)
-
-
-def load_yaml(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
 
 
 def slugify(value: str) -> str:
@@ -49,40 +136,6 @@ def slugify(value: str) -> str:
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug.strip("-")
-
-
-def ensure_site(nb: pynetbox.api.Api, name: str) -> Any:
-    slug = slugify(name)
-    site = nb.dcim.sites.get(slug=slug)
-    payload = {"name": name, "slug": slug}
-    if site:
-        site.update(payload)
-        return site
-    return nb.dcim.sites.create(payload)
-
-
-def ensure_device_role(nb: pynetbox.api.Api, name: str, color: str) -> Any:
-    slug = slugify(name)
-    role = nb.dcim.device_roles.get(slug=slug)
-    payload = {"name": name, "slug": slug, "color": color, "vm_role": False}
-    if role:
-        role.update(payload)
-        return role
-    return nb.dcim.device_roles.create(payload)
-
-
-def ensure_platform(
-    nb: pynetbox.api.Api, name: str, manufacturer_id: int | None = None
-) -> Any:
-    slug = slugify(name)
-    platform = nb.dcim.platforms.get(slug=slug)
-    payload: Dict[str, Any] = {"name": name, "slug": slug}
-    if manufacturer_id:
-        payload["manufacturer"] = manufacturer_id
-    if platform:
-        platform.update(payload)
-        return platform
-    return nb.dcim.platforms.create(payload)
 
 
 def ensure_tag(nb: pynetbox.api.Api, name: str) -> Any:
@@ -95,183 +148,98 @@ def ensure_tag(nb: pynetbox.api.Api, name: str) -> Any:
     return nb.extras.tags.create(payload)
 
 
-def ensure_vlan(
+def ensure_custom_field_definition(
     nb: pynetbox.api.Api,
     *,
-    site_id: int,
     name: str,
-    vid: int,
-    status: str = "active",
-    description: str | None = None,
-    tag_ids: Iterable[int] | None = None,
+    definition: Dict[str, Any],
+    content_type: str,
 ) -> Any:
-    vlan = nb.ipam.vlans.get(site_id=site_id, vid=vid)
+    cf_api = nb.extras.custom_fields
     payload: Dict[str, Any] = {
         "name": name,
-        "vid": vid,
-        "site": site_id,
-        "status": status,
-    }
-    if description:
-        payload["description"] = description
-    if tag_ids:
-        payload["tags"] = list(tag_ids)
-    if vlan:
-        vlan.update(payload)
-        return nb.ipam.vlans.get(id=vlan.id)
-    return nb.ipam.vlans.create(payload)
-
-
-def ensure_l2vpn(
-    nb: pynetbox.api.Api,
-    *,
-    name: str,
-    type_slug: str = "vxlan-evpn",
-    description: str | None = None,
-    status: str = "active",
-    identifier: int | None = None,
-    tag_ids: Iterable[int] | None = None,
-    custom_fields: Dict[str, Any] | None = None,
-) -> Any | None:
-    if not hasattr(nb, "vpn"):
-        return None
-    slug = slugify(name)
-    try:
-        l2vpn = nb.vpn.l2vpns.get(slug=slug)
-    except RequestError as exc:
-        if getattr(exc, "req", None) is not None and exc.req.status_code == 404:
-            return None
-        raise
-    payload: Dict[str, Any] = {
-        "name": name,
-        "slug": slug,
-        "type": type_slug,
-        "status": status,
-    }
-    if identifier is not None:
-        payload["identifier"] = identifier
-    if description:
-        payload["description"] = description
-    if tag_ids:
-        payload["tags"] = list(tag_ids)
-    if custom_fields:
-        payload["custom_fields"] = custom_fields
-    if l2vpn:
-        l2vpn.update(payload)
-        return nb.vpn.l2vpns.get(id=l2vpn.id)
-    try:
-        return nb.vpn.l2vpns.create(payload)
-    except RequestError as exc:
-        if getattr(exc, "req", None) is not None and exc.req.status_code == 404:
-            return None
-        raise
-
-
-def ensure_vrf(
-    nb: pynetbox.api.Api,
-    *,
-    name: str,
-    rd: str | None = None,
-    description: str | None = None,
-    tag_ids: Iterable[int] | None = None,
-    custom_fields: Dict[str, Any] | None = None,
-) -> Any:
-    """Ensure an IP VRF exists."""
-
-    vrf = nb.ipam.vrfs.get(name=name)
-    payload: Dict[str, Any] = {
-        "name": name,
-    }
-    if rd:
-        payload["rd"] = rd
-    if description:
-        payload["description"] = description
-    if tag_ids:
-        payload["tags"] = list(tag_ids)
-    if custom_fields:
-        payload["custom_fields"] = custom_fields
-    if vrf:
-        vrf.update(payload)
-        return nb.ipam.vrfs.get(id=vrf.id)
-    return nb.ipam.vrfs.create(payload)
-
-
-def ensure_custom_field(
-    nb: pynetbox.api.Api,
-    *,
-    name: str,
-    field_type: str,
-    content_types: Iterable[str],
-    label: str | None = None,
-    description: str | None = None,
-    default: Any | None = None,
-) -> Any:
-    """Ensure a custom field exists for the provided NetBox content types."""
-
-    content_type_list = list(content_types)
-    cf = nb.extras.custom_fields.get(name=name)
-    payload: Dict[str, Any] = {
-        "name": name,
-        "type": field_type,
-        "content_types": content_type_list,
-        "object_types": content_type_list,
+        "type": definition["type"],
+        "content_types": [content_type],
+        "object_types": [content_type],
         "required": False,
     }
-    if label is not None:
-        payload["label"] = label
-    if description is not None:
-        payload["description"] = description
-    if default is not None:
-        payload["default"] = default
+    if "label" in definition:
+        payload["label"] = definition["label"]
+    if "description" in definition:
+        payload["description"] = definition["description"]
+    if "default" in definition:
+        payload["default"] = definition["default"]
+    if "object_type" in definition:
+        payload["related_object_type"] = definition["object_type"]
 
+    cf = cf_api.get(name=name)
     if cf:
         cf.update(payload)
         return cf
-    return nb.extras.custom_fields.create(payload)
+    return cf_api.create(payload)
 
 
-def ensure_device_custom_field(
-    nb: pynetbox.api.Api,
-    *,
-    name: str,
-    field_type: str,
-    label: str | None = None,
-    description: str | None = None,
-    default: Any | None = None,
-) -> Any:
-    """Ensure a custom field exists on dcim.device objects."""
-
-    return ensure_custom_field(
-        nb,
-        name=name,
-        field_type=field_type,
-        content_types=["dcim.device"],
-        label=label,
-        description=description,
-        default=default,
-    )
+def ensure_site(nb: pynetbox.api.Api, name: str) -> Any:
+    slug = slugify(name)
+    site = nb.dcim.sites.get(slug=slug)
+    payload = {"name": name, "slug": slug}
+    if site:
+        site.update(payload)
+        return site
+    return nb.dcim.sites.create(payload)
 
 
-def ensure_interface_custom_field(
-    nb: pynetbox.api.Api,
-    *,
-    name: str,
-    field_type: str,
-    label: str | None = None,
-    description: str | None = None,
-    default: Any | None = None,
-) -> Any:
-    """Ensure a custom field exists on dcim.interface objects."""
+def ensure_device_role(nb: pynetbox.api.Api, name: str) -> Any:
+    slug = slugify(name)
+    role = nb.dcim.device_roles.get(slug=slug)
+    payload = {"name": name, "slug": slug, "vm_role": False, "color": "9e9e9e"}
+    if role:
+        role.update(payload)
+        return role
+    return nb.dcim.device_roles.create(payload)
 
-    return ensure_custom_field(
-        nb,
-        name=name,
-        field_type=field_type,
-        content_types=["dcim.interface"],
-        label=label,
-        description=description,
-        default=default,
-    )
+
+def ensure_device_custom_fields(nb: pynetbox.api.Api) -> None:
+    for name, definition in DEVICE_CUSTOM_FIELDS.items():
+        ensure_custom_field_definition(
+            nb,
+            name=name,
+            definition=definition,
+            content_type="dcim.device",
+        )
+
+
+def ensure_l2vpn_custom_fields(nb: pynetbox.api.Api) -> None:
+    for name, definition in L2VPN_CUSTOM_FIELDS.items():
+        ensure_custom_field_definition(
+            nb,
+            name=name,
+            definition=definition,
+            content_type="vpn.l2vpn",
+        )
+
+
+def ensure_platform(nb: pynetbox.api.Api, name: str, manufacturer_id: int) -> Any:
+    slug = slugify(name)
+    platform = nb.dcim.platforms.get(slug=slug)
+    payload = {"name": name, "slug": slug, "manufacturer": manufacturer_id}
+    if platform:
+        platform.update(payload)
+        return platform
+    return nb.dcim.platforms.create(payload)
+
+
+def collect_device_types(nb: pynetbox.api.Api, manufacturer_id: int) -> List[Any]:
+    return list(nb.dcim.device_types.filter(manufacturer_id=manufacturer_id, limit=0))
+
+
+def resolve_device_type(device_types: Iterable[Any], model_hint: str) -> Optional[Any]:
+    normalized = model_hint.lower()
+    for candidate in device_types:
+        model = (candidate.model or "").lower()
+        if model == normalized or model.startswith(normalized):
+            return candidate
+    return None
 
 
 def ensure_device(
@@ -280,27 +248,25 @@ def ensure_device(
     name: str,
     device_type_id: int,
     role_id: int,
+    platform_id: int,
     site_id: int,
-    platform_id: int | None,
+    custom_fields: Dict[str, Any],
     tag_ids: Iterable[int],
-    custom_fields: Dict[str, Any] | None = None,
 ) -> Any:
-    device = nb.dcim.devices.get(name=name)
-    payload: Dict[str, Any] = {
+    payload = {
         "name": name,
         "device_type": device_type_id,
         "role": role_id,
+        "platform": platform_id,
         "site": site_id,
         "status": "active",
         "tags": list(tag_ids),
+        "custom_fields": custom_fields,
     }
-    if platform_id:
-        payload["platform"] = platform_id
-    if custom_fields:
-        payload["custom_fields"] = custom_fields
+    device = nb.dcim.devices.get(name=name)
     if device:
         device.update(payload)
-        return nb.dcim.devices.get(name=name)
+        return nb.dcim.devices.get(id=device.id)
     return nb.dcim.devices.create(payload)
 
 
@@ -309,56 +275,34 @@ def ensure_interface(
     *,
     device_id: int,
     name: str,
-    type_slug: str,
-    description: str | None = None,
-    tag_id: int | None = None,
+    iface_type: str,
+    description: Optional[str] = None,
+    tag_ids: Optional[Iterable[int]] = None,
 ) -> Any:
     iface = nb.dcim.interfaces.get(device_id=device_id, name=name)
-    payload: Dict[str, Any] = {
+    payload = {
         "device": device_id,
         "name": name,
-        "type": type_slug,
+        "type": iface_type,
         "enabled": True,
     }
     if description:
         payload["description"] = description
-    if tag_id:
-        payload["tags"] = [tag_id]
+    if tag_ids:
+        payload["tags"] = list(tag_ids)
     if iface:
         iface.update(payload)
-        return iface
+        return nb.dcim.interfaces.get(id=iface.id)
     return nb.dcim.interfaces.create(payload)
-
-
-def ensure_primary_ip(
-    nb: pynetbox.api.Api, *, device: Any, interface: Any, address: str
-) -> Any:
-    cidr = f"{ipaddress.ip_address(address)}/32"
-    ip_obj = nb.ipam.ip_addresses.get(address=cidr)
-    payload: Dict[str, Any] = {
-        "address": cidr,
-        "status": "active",
-        "assigned_object_type": "dcim.interface",
-        "assigned_object_id": interface.id,
-    }
-    if ip_obj:
-        if ip_obj.assigned_object_id != interface.id:
-            ip_obj.update(payload)
-    else:
-        ip_obj = nb.ipam.ip_addresses.create(payload)
-    if not device.primary_ip4 or device.primary_ip4.id != ip_obj.id:
-        device.update({"primary_ip4": ip_obj.id})
-    return ip_obj
 
 
 def ensure_ipam_address(
     nb: pynetbox.api.Api,
     *,
     address: str,
-    vrf_id: int | None = None,
+    vrf_id: Optional[int] = None,
     status: str = "active",
-    role: str | None = None,
-    description: str | None = None,
+    description: Optional[str] = None,
 ) -> Any:
     payload: Dict[str, Any] = {
         "address": address,
@@ -366,8 +310,6 @@ def ensure_ipam_address(
     }
     if vrf_id:
         payload["vrf"] = vrf_id
-    if role:
-        payload["role"] = role
     if description:
         payload["description"] = description
 
@@ -381,711 +323,566 @@ def ensure_ipam_address(
     return nb.ipam.ip_addresses.create(payload)
 
 
-def ensure_cable(
+def ensure_primary_ip(nb: pynetbox.api.Api, *, device: Any, interface: Any, address: str) -> None:
+    cidr = f"{address}/32"
+    ip_obj = nb.ipam.ip_addresses.get(address=cidr)
+    payload = {
+        "address": cidr,
+        "status": "active",
+        "assigned_object_type": "dcim.interface",
+        "assigned_object_id": interface.id,
+    }
+    if ip_obj:
+        ip_obj.update(payload)
+    else:
+        ip_obj = nb.ipam.ip_addresses.create(payload)
+    if not device.primary_ip4 or device.primary_ip4.id != ip_obj.id:
+        device.update({"primary_ip4": ip_obj.id})
+
+
+def ensure_vlan(
+    nb: pynetbox.api.Api,
+    *,
+    site_id: int,
+    name: str,
+    vid: int,
+    tag_ids: Iterable[int],
+    description: Optional[str] = None,
+) -> Any:
+    vlan = nb.ipam.vlans.get(site_id=site_id, vid=vid)
+    payload = {
+        "name": name,
+        "site": site_id,
+        "vid": vid,
+        "status": "active",
+        "tags": list(tag_ids),
+    }
+    if description:
+        payload["description"] = description
+    if vlan:
+        vlan.update(payload)
+        return nb.ipam.vlans.get(id=vlan.id)
+    return nb.ipam.vlans.create(payload)
+
+
+def ensure_vrf(
     nb: pynetbox.api.Api,
     *,
     name: str,
-    a_iface: Any,
-    b_iface: Any,
-    cable_type: str,
+    description: str,
     tag_ids: Iterable[int],
 ) -> Any:
-    existing = nb.dcim.cables.get(label=name)
-    if existing:
-        existing.delete()
-
+    vrf = nb.ipam.vrfs.get(name=name)
     payload = {
-        "label": name,
-        "status": "connected",
-        "type": cable_type,
-        "a_terminations": [
-            {"object_type": "dcim.interface", "object_id": a_iface.id},
-        ],
-        "b_terminations": [
-            {"object_type": "dcim.interface", "object_id": b_iface.id},
-        ],
+        "name": name,
+        "description": description,
         "tags": list(tag_ids),
     }
+    if vrf:
+        vrf.update(payload)
+        return nb.ipam.vrfs.get(id=vrf.id)
+    return nb.ipam.vrfs.create(payload)
 
+
+def ensure_l2vpn(
+    nb: pynetbox.api.Api,
+    *,
+    name: str,
+    identifier: Optional[int],
+    description: str,
+    tag_ids: Iterable[int],
+    metadata: Dict[str, Any],
+    custom_fields: Optional[Dict[str, Any]] = None,
+) -> Optional[Any]:
+    if not hasattr(nb, "vpn"):
+        return None
+    payload = {
+        "name": name,
+        "slug": slugify(name),
+        "type": "vxlan-evpn",
+        "status": "active",
+        "tags": list(tag_ids),
+        "comments": json.dumps({"eda": metadata}),
+    }
+    if identifier is not None:
+        payload["identifier"] = identifier
+    if custom_fields:
+        payload["custom_fields"] = custom_fields
+    l2vpn = nb.vpn.l2vpns.get(name=name)
+    if l2vpn:
+        l2vpn.update(payload)
+        return nb.vpn.l2vpns.get(id=l2vpn.id)
+    try:
+        return nb.vpn.l2vpns.create(payload)
+    except pynetbox.core.query.RequestError as exc:  # pragma: no cover
+        if getattr(exc, "error", "").find("/api/vpn/l2vpns") >= 0:
+            info("NetBox does not expose the VPN app; skipping L2VPN creation.")
+            return None
+        raise
+
+
+def ensure_label_tag(nb: pynetbox.api.Api, *, label: str) -> Any:
+    tag = nb.extras.tags.get(name=label)
+    if tag:
+        return tag
+    slug = slugify(label)
+    return nb.extras.tags.create({"name": label, "slug": slug, "color": "5e35b1"})
+
+
+def interface_type_for_speed(speed: Optional[str]) -> str:
+    if not speed:
+        return FABRIC_INTERFACE_TYPE
+    return SPEED_TO_INTERFACE_TYPE.get(speed.upper(), FABRIC_INTERFACE_TYPE)
+
+
+def create_cable(nb: pynetbox.api.Api, payload: Dict[str, Any]) -> Any:
+    url = f"{nb.base_url}/dcim/cables/"
     headers = {
         "Authorization": f"Token {nb.token}",
         "Content-Type": "application/json",
     }
-    response = requests.post(
-        f"{nb.base_url}/dcim/cables/",
-        headers=headers,
-        json=payload,
-    )
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
     if response.status_code not in (200, 201):
         raise RuntimeError(
-            f"Failed to create cable '{name}': {response.status_code} {response.text}"
+            f"Cable create failed with status {response.status_code}: {response.text}"
         )
     cable_id = response.json().get("id")
-    return nb.dcim.cables.get(cable_id)
+    if not cable_id:
+        raise RuntimeError("Cable create response missing id field")
+    return nb.dcim.cables.get(id=cable_id)
+
+
+def sanitize_gateway(ip_prefix: str) -> str:
+    return ip_prefix.strip()
+
+
+def parse_edge_interfaces(service_data: Dict[str, Any]) -> List[EdgeInterfaceSpec]:
+    results: List[EdgeInterfaceSpec] = []
+    for entry in service_data.get("edge_interfaces", []) or []:
+        name = entry.get("name")
+        if not name:
+            continue
+        labels = entry.get("labels") or {}
+        spec = entry.get("spec") or {}
+        members = spec.get("members") or []
+        speed = (spec.get("ethernet") or {}).get("speed") or "10G"
+        results.append(
+            EdgeInterfaceSpec(name=name, labels=labels, members=members, speed=speed)
+        )
+    return results
+
+
+def parse_virtual_networks(service_data: Dict[str, Any]) -> List[VirtualNetworkSpec]:
+    results: List[VirtualNetworkSpec] = []
+    for entry in service_data.get("virtual_networks", []) or []:
+        name = entry.get("name")
+        if not name:
+            continue
+        namespace = entry.get("namespace") or "eda"
+        spec = entry.get("spec") or {}
+        routers = spec.get("routers") or []
+        bridge_domains_raw = spec.get("bridgeDomains") or []
+        irb_lookup: Dict[str, str] = {}
+        for irb in spec.get("irbInterfaces") or []:
+            irb_spec = irb.get("spec") or {}
+            bridge_domain = irb_spec.get("bridgeDomain")
+            if not bridge_domain:
+                continue
+            for ip_def in irb_spec.get("ipAddresses") or []:
+                ipv4 = (ip_def.get("ipv4Address") or {}).get("ipPrefix")
+                if ipv4:
+                    irb_lookup[bridge_domain] = sanitize_gateway(ipv4)
+                    break
+        bridge_domains: List[BridgeDomainSpec] = []
+        for bd in bridge_domains_raw:
+            bd_name = bd.get("name")
+            if not bd_name:
+                continue
+            bridge_domains.append(
+                BridgeDomainSpec(
+                    name=bd_name,
+                    source_spec=bd.get("spec") or {},
+                    gateway=irb_lookup.get(bd_name),
+                )
+            )
+        vlans = spec.get("vlans") or []
+        results.append(
+            VirtualNetworkSpec(
+                name=name,
+                namespace=namespace,
+                routers=routers,
+                bridge_domains=bridge_domains,
+                vlans=vlans,
+            )
+        )
+    return results
+
+
+def ensure_services(
+    nb: pynetbox.api.Api,
+    *,
+    site_id: int,
+    tag_ids: Iterable[int],
+    edge_tag_id: int,
+    label_tag_cache: Dict[str, Any],
+    edge_specs: List[EdgeInterfaceSpec],
+    vnets: List[VirtualNetworkSpec],
+    interface_cache: Dict[str, Dict[str, Any]],
+    devices: Dict[str, Any],
+) -> None:
+    vlan_lookup: Dict[str, Any] = {}
+
+    for vnet in vnets:
+        router_names = [router.get("name") for router in vnet.routers if router.get("name")]
+        router_names = [name for name in router_names if name]
+        vrf = None
+        if router_names:
+            vrf_description = f"EDA demo VRF {vnet.name}"
+            vrf = ensure_vrf(
+                nb,
+                name=vnet.name,
+                description=vrf_description,
+                tag_ids=tag_ids,
+            )
+            info(f"Ensured VRF {vrf.name} (id={vrf.id}).")
+
+        bridge_domain_metadata: Dict[str, BridgeDomainSpec] = {
+            bd.name: bd for bd in vnet.bridge_domains
+        }
+
+        for vlan_def in vnet.vlans:
+            vlan_name = vlan_def.get("name")
+            vlan_spec = vlan_def.get("spec") or {}
+            vlan_id_raw = vlan_spec.get("vlanID")
+            if vlan_name and vlan_id_raw is not None:
+                try:
+                    vlan_id = int(str(vlan_id_raw))
+                except ValueError:
+                    continue
+                vlan_obj = ensure_vlan(
+                    nb,
+                    site_id=site_id,
+                    name=vlan_name,
+                    vid=vlan_id,
+                    tag_ids=tag_ids,
+                    description=f"EDA demo VLAN {vlan_name}",
+                )
+                vlan_lookup[vlan_name] = vlan_obj
+
+        for bd_name, bd in bridge_domain_metadata.items():
+            l2_identifier = None
+            vlan_def = next((v for v in vnet.vlans if v.get("spec", {}).get("bridgeDomain") == bd_name), None)
+            if vlan_def:
+                try:
+                    l2_identifier = int(str(vlan_def.get("spec", {}).get("vlanID")))
+                except (TypeError, ValueError):
+                    l2_identifier = None
+            metadata: Dict[str, Any] = {"bridge_domain": bd.source_spec}
+            if router_names:
+                metadata["parent_vrfs"] = router_names
+            custom_fields: Dict[str, Any] = {}
+            if bd.gateway:
+                ip_obj = ensure_ipam_address(
+                    nb,
+                    address=bd.gateway,
+                    vrf_id=vrf.id if vrf else None,
+                    description=f"EDA gateway for {bd_name}",
+                )
+                custom_fields["L2vpn_gateway"] = ip_obj.id
+            if vrf:
+                custom_fields["L2vpn_ipvrf"] = vrf.id
+            l2vpn = ensure_l2vpn(
+                nb,
+                name=bd_name,
+                identifier=l2_identifier,
+                description=f"EDA demo bridge domain {bd_name}",
+                tag_ids=tag_ids,
+                metadata=metadata,
+                custom_fields=custom_fields or None,
+            )
+            if l2vpn:
+                info(f"Ensured L2VPN {l2vpn.name} (id={l2vpn.id}).")
+
+    for edge in edge_specs:
+        label_objects: List[Any] = []
+        for label_key, label_value in edge.labels.items():
+            if str(label_value).lower() != "true":
+                continue
+            tag = label_tag_cache.get(label_key)
+            if not tag:
+                tag = ensure_label_tag(nb, label=label_key)
+                label_tag_cache[label_key] = tag
+            label_objects.append(tag)
+        vlan_ids: List[int] = []
+        for label_key in edge.labels.keys():
+            if not label_key.startswith("eda.nokia.com/macvrf"):
+                continue
+            suffix = label_key.split("/")[-1]
+            try:
+                vlan_id = int(str(suffix).replace("macvrf", ""))
+            except ValueError:
+                continue
+            vlan_obj = ensure_vlan(
+                nb,
+                site_id=site_id,
+                name=suffix,
+                vid=vlan_id,
+                tag_ids=tag_ids,
+                description=f"EDA VLAN {suffix}",
+            )
+            vlan_lookup[suffix] = vlan_obj
+            vlan_ids.append(vlan_obj.id)
+
+        for member in edge.members:
+            node = member.get("node")
+            iface_name = member.get("interface")
+            if not node or not iface_name:
+                continue
+            iface = interface_cache.get(node, {}).get(iface_name)
+            if not iface:
+                device_obj = devices.get(node)
+                if not device_obj:
+                    info(f"Edge member skipped: device {node} not present in NetBox.")
+                    continue
+                info(
+                    f"Creating edge interface {node} {iface_name} for service member {edge.name}."
+                )
+                new_iface = ensure_interface(
+                    nb,
+                    device_id=device_obj.id,
+                    name=iface_name,
+                    iface_type=interface_type_for_speed(edge.speed),
+                    description=edge.name,
+                    tag_ids=list({edge_tag_id, *tag_ids}),
+                )
+                interface_cache.setdefault(node, {})[iface_name] = new_iface
+                iface = new_iface
+            desired_type = interface_type_for_speed(edge.speed)
+            current_type = getattr(getattr(iface, "type", None), "value", None)
+            if current_type != desired_type:
+                iface.update({"type": desired_type})
+                iface = nb.dcim.interfaces.get(id=iface.id)
+                interface_cache[node][iface_name] = iface
+            existing_tag_ids = {
+                tag.id
+                for tag in getattr(iface, "tags", [])
+                if getattr(tag, "id", None) is not None
+            }
+            edge_tag_ids = {tag.id for tag in label_objects}
+            desired_tag_ids = existing_tag_ids | edge_tag_ids | {edge_tag_id}
+            payload = {"tags": sorted(desired_tag_ids)}
+            if vlan_ids:
+                payload["mode"] = "tagged"
+                payload["tagged_vlans"] = sorted(set(vlan_ids))
+            iface.update(payload)
+            interface_cache[node][iface_name] = nb.dcim.interfaces.get(id=iface.id)
 
 
 def main() -> int:
-    netbox_url = os.environ.get("NETBOX_URL", "http:///172.22.255.3/")
+    netbox_url = os.environ.get("NETBOX_URL", "http://127.0.0.1:8000")
     token = os.environ.get("NETBOX_TOKEN")
+
     if not token:
         print("NETBOX_TOKEN is required", file=sys.stderr)
         return 1
 
     info(f"Connecting to NetBox at {netbox_url}...")
     nb = pynetbox.api(netbox_url, token=token)
-    info("NetBox API client initialized.")
 
-    info("Loading topology definitions from local YAML files...")
-    toponodes = load_yaml(BASE_DIR / "vars/topology/toponodes.yml")["toponodes"]
-    topology_links = load_yaml(BASE_DIR / "vars/topology/topolinks.yml")
-    services_file = BASE_DIR / "vars/services/services.yml"
-    services_data: Dict[str, Any] = {}
-    if services_file.exists():
-        services_data = load_yaml(services_file) or {}
-        info(f"Loaded services definitions from {services_file}.")
-    else:
-        info("No services file found; continuing without services definitions.")
-    service_edge_interfaces: List[Dict[str, Any]] = (
-        services_data.get("edge_interfaces") or []
-    )
-    service_virtual_networks: List[Dict[str, Any]] = (
-        services_data.get("virtual_networks") or []
-    )
-    topolink_groups = topology_links.get("topolinks", [])
-    interface_groups = topology_links.get("topolink_interfaces", [])
-    total_toponodes = len(toponodes)
+    loader = TopologyLoader(BASE_DIR)
+    toponodes = loader.toponodes()
+    topolink_iface_groups = loader.topolink_interfaces()
+    topolink_groups = loader.topolinks()
+    services = loader.services()
+
     info(
-        f"Loaded {total_toponodes} toponodes, {len(topolink_groups)} link groups, and {len(interface_groups)} interface groups."
-    )
-    info(
-        f"Edge interface definitions: {len(service_edge_interfaces)}; virtual networks: {len(service_virtual_networks)}."
+        f"Loaded {len(toponodes)} nodes, {len(topolink_iface_groups)} interface groups, "
+        f"and {len(topolink_groups)} link groups."
     )
 
-    info("Ensuring required custom fields in NetBox...")
-    # Ensure device custom fields required by the NetBox integration exist.
-    ensure_device_custom_field(
-        nb,
-        name="operatingSystem",
-        field_type="text",
-        label="Operating System",
-        description="Operating system reported to Nokia EDA",
-    )
-    ensure_device_custom_field(
-        nb,
-        name="version",
-        field_type="text",
-        label="Software Version",
-        description="Software version reported to Nokia EDA",
-    )
-    ensure_device_custom_field(
-        nb,
-        name="onBoarded",
-        field_type="boolean",
-        label="On-boarded",
-        description="Whether the node has been onboarded into Nokia EDA",
-        default=False,
-    )
-    ensure_device_custom_field(
-        nb,
-        name="nodeProfile",
-        field_type="text",
-        label="Node Profile",
-        description="Nokia EDA NodeProfile name referenced by the device",
-    )
+    ensure_device_custom_fields(nb)
+    ensure_l2vpn_custom_fields(nb)
 
-    ensure_interface_custom_field(
-        nb,
-        name=EDGE_LAG_CF_NAME,
-        field_type="text",
-        label="Edge LAG Identifier",
-        description="Identifier used to group multihomed edge interfaces",
-    )
-    ensure_custom_field(
-        nb,
-        name=VRF_SPEC_CF_NAME,
-        field_type="json",
-        content_types=["ipam.vrf"],
-        label="EDA VRF Spec",
-        description="Router spec captured from Nokia EDA virtual network definitions",
-    )
-    ensure_custom_field(
-        nb,
-        name=BD_SPEC_CF_NAME,
-        field_type="json",
-        content_types=["vpn.l2vpn"],
-        label="EDA Bridge Domain Spec",
-        description="Bridge domain spec captured from Nokia EDA virtual network definitions",
-    )
-    ensure_custom_field(
-        nb,
-        name=BD_PARENT_VRF_CF_NAME,
-        field_type="text",
-        content_types=["vpn.l2vpn"],
-        label="EDA Parent IP VRF",
-        description="Name of the IP VRF associated with this bridge domain",
-    )
-    ensure_custom_field(
-        nb,
-        name=BD_GATEWAY_IP_CF_NAME,
-        field_type="text",
-        content_types=["vpn.l2vpn"],
-        label="EDA Gateway IPv4",
-        description="Gateway IPv4 prefix associated with this MAC VRF",
-    )
-    info("Custom fields ensured.")
+    site = ensure_site(nb, DEFAULT_SITE_NAME)
+    demo_tag = ensure_tag(nb, DEFAULT_TAG_NAME)
+    edge_tag = ensure_tag(nb, EDGE_TAG_NAME)
+    isl_tag = ensure_tag(nb, ISL_TAG_NAME)
 
-    # Pre-load manufacturer lookup.
-    info("Ensuring manufacturer and loading device types...")
     manufacturer = nb.dcim.manufacturers.get(name="Nokia")
     if not manufacturer:
         manufacturer = nb.dcim.manufacturers.create({"name": "Nokia", "slug": "nokia"})
 
-    device_types = list(nb.dcim.device_types.filter(manufacturer_id=manufacturer.id))
-    info(
-        f"Discovered {len(device_types)} device types for manufacturer {manufacturer.name}."
-    )
+    device_types = collect_device_types(nb, manufacturer.id)
 
-    def resolve_device_type(model_name: str) -> Any | None:
-        for candidate in device_types:
-            if candidate.model.lower().startswith(model_name.lower()):
-                return candidate
-        return None
-
-    info(f"Ensuring site '{DEFAULT_SITE_NAME}' and topology tags...")
-    site = ensure_site(nb, DEFAULT_SITE_NAME)
-    tag = ensure_tag(nb, DEFAULT_TAG_NAME)
-    isl_tag = ensure_tag(nb, ISL_TAG_NAME)
-    edge_tag = ensure_tag(nb, EDGE_TAG_NAME)
-    label_tag_cache: Dict[str, Any] = {}
-    info("Site and tags ensured.")
-
-    # Remove legacy config contexts left by earlier demos.
-    for ctx in nb.extras.config_contexts.filter(name="EDA Demo Services"):
-        info("Removing legacy 'EDA Demo Services' config context...")
-        ctx.delete()
-    for ctx in nb.extras.config_contexts.filter(limit=0):
-        if ctx.name.endswith("-node-profile"):
-            info(f"Removing legacy config context '{ctx.name}'...")
-            ctx.delete()
-    info("Legacy config contexts removed (if present).")
-
-    vrf_lookup: Dict[str, Any] = {}
-    l2vpn_lookup: Dict[str, Any] = {}
-    vlan_lookup: Dict[str, Any] = {}
-    irb_ip_addresses_ensured = 0
-
-    l2vpn_supported = True
-
-    if service_virtual_networks:
-        info(f"Processing {len(service_virtual_networks)} service virtual networks...")
-    else:
-        info(
-            "No service virtual networks defined; skipping L2VPN/VLAN provisioning from services metadata."
-        )
-
-    for virtual_network in service_virtual_networks:
-        vnet_name = virtual_network.get("name")
-        if not vnet_name:
-            continue
-        vnet_spec = virtual_network.get("spec", {}) or {}
-        vlan_defs = vnet_spec.get("vlans", []) or []
-        bridge_domains = vnet_spec.get("bridgeDomains", []) or []
-        router_defs = vnet_spec.get("routers", []) or []
-        vnet_namespace = virtual_network.get("namespace") or "eda"
-        vnet_irb_interfaces = vnet_spec.get("irbInterfaces", []) or []
-        bd_gateway_lookup: Dict[str, str] = {}
-        router_names: List[str] = []
-        for router_def in router_defs:
-            router_name = router_def.get("name")
-            if not router_name:
-                continue
-            router_spec = router_def.get("spec", {}) or {}
-            if router_name not in router_names:
-                router_names.append(router_name)
-            rd_candidate = router_spec.get("rd") or router_spec.get("routeDistinguisher")
-            if rd_candidate is None:
-                rd_candidate = router_spec.get("routerID")
-            rd_value: str | None = None
-            if rd_candidate is not None:
-                rd_candidate_str = str(rd_candidate)
-                if ":" in rd_candidate_str:
-                    rd_value = rd_candidate_str
-            vrf_custom_fields = {VRF_SPEC_CF_NAME: {"namespace": vnet_namespace}}
-            vrf_description = f"EDA demo IP VRF {router_name} ({vnet_name})"
-            vrf = ensure_vrf(
-                nb,
-                name=router_name,
-                rd=rd_value,
-                description=vrf_description,
-                tag_ids=[tag.id],
-                custom_fields=vrf_custom_fields,
-            )
-            vrf_lookup[router_name] = vrf
-
-        for irb_def in vnet_irb_interfaces:
-            irb_name = irb_def.get("name")
-            irb_spec = irb_def.get("spec", {}) or {}
-            bridge_domain_name = irb_spec.get("bridgeDomain")
-            if not bridge_domain_name:
-                continue
-            router_name = irb_spec.get("router")
-            ip_mtu = irb_spec.get("ipMTU")
-            ip_entries: List[Dict[str, Any]] = []
-            preferred_ipv4: str | None = None
-            for address_def in irb_spec.get("ipAddresses", []):
-                ip_payload = address_def.get("ipv4Address") or address_def.get("ipv6Address")
-                if not ip_payload:
-                    continue
-                ip_prefix = ip_payload.get("ipPrefix")
-                if not ip_prefix:
-                    continue
-                is_ipv6 = ":" in ip_prefix
-                vrf_obj = vrf_lookup.get(router_name) if router_name else None
-                vrf_id = getattr(vrf_obj, "id", None) if vrf_obj else None
-                ip_description = f"IRB {irb_name or bridge_domain_name} ({router_name or vnet_name})"
-                ip_obj = ensure_ipam_address(
-                    nb,
-                    address=ip_prefix,
-                    vrf_id=vrf_id,
-                    description=ip_description,
-                )
-                irb_ip_addresses_ensured += 1
-                ip_entry: Dict[str, Any] = {
-                    "address": ip_prefix,
-                    "primary": bool(ip_payload.get("primary")),
-                }
-                if ip_obj:
-                    ip_entry["ipId"] = ip_obj.id
-                ip_entry["family"] = "ipv6" if is_ipv6 else "ipv4"
-                ip_entries.append(ip_entry)
-
-                if not is_ipv6:
-                    if ip_payload.get("primary"):
-                        preferred_ipv4 = ip_prefix
-                    elif preferred_ipv4 is None:
-                        preferred_ipv4 = ip_prefix
-
-            irb_entry = {
-                "name": irb_name or f"{bridge_domain_name}-irb",
-                "bridgeDomain": bridge_domain_name,
-                "router": router_name or (router_names[0] if router_names else None),
-                "ipMTU": ip_mtu,
-                "ipAddresses": ip_entries,
-            }
-            if preferred_ipv4:
-                bd_gateway_lookup[bridge_domain_name] = preferred_ipv4
-
-        bridge_domain_vlan_map: Dict[str, int] = {}
-        first_vlan: int | None = None
-        for vlan_def in vlan_defs:
-            vlan_name = vlan_def.get("name")
-            vlan_spec = vlan_def.get("spec", {})
-            vlan_id_raw = vlan_spec.get("vlanID")
-            if not vlan_name or vlan_id_raw is None:
-                continue
-            try:
-                vlan_id = int(str(vlan_id_raw))
-            except (TypeError, ValueError):
-                continue
-            if first_vlan is None:
-                first_vlan = vlan_id
-            bridge_domain_name = vlan_spec.get("bridgeDomain")
-            if bridge_domain_name and bridge_domain_name not in bridge_domain_vlan_map:
-                bridge_domain_vlan_map[str(bridge_domain_name)] = vlan_id
-            vlan_description = f"EDA demo VLAN {vlan_name} for {vnet_name}"
-            if bridge_domain_name:
-                vlan_description = (
-                    f"EDA demo VLAN {vlan_name} for bridge domain {bridge_domain_name}"
-                )
-            vlan_obj = ensure_vlan(
-                nb,
-                site_id=site.id,
-                name=vlan_name,
-                vid=vlan_id,
-                description=vlan_description,
-                tag_ids=[tag.id],
-            )
-            vlan_lookup[vlan_name] = vlan_obj
-
-        # For legacy data without bridge domains, maintain a virtual-network L2VPN.
-        if not bridge_domains:
-            l2vpn = ensure_l2vpn(
-                nb,
-                name=vnet_name,
-                type_slug="vxlan-evpn",
-                description=f"EDA demo virtual network {vnet_name}",
-                identifier=first_vlan,
-                tag_ids=[tag.id],
-            )
-            if l2vpn is None:
-                l2vpn_supported = False
-            else:
-                l2vpn_lookup[vnet_name] = l2vpn
-
-        parent_vrf_string = ", ".join(router_names)
-        for bridge_domain in bridge_domains:
-            bd_name = bridge_domain.get("name")
-            if not bd_name:
-                continue
-            bd_spec = bridge_domain.get("spec", {}) or {}
-            identifier = bridge_domain_vlan_map.get(str(bd_name))
-            bd_description = f"EDA demo bridge domain {bd_name} ({vnet_name})"
-            bd_custom_fields = {BD_SPEC_CF_NAME: bd_spec}
-            if parent_vrf_string:
-                bd_custom_fields[BD_PARENT_VRF_CF_NAME] = parent_vrf_string
-            else:
-                bd_custom_fields[BD_PARENT_VRF_CF_NAME] = None
-            gateway_ip = bd_gateway_lookup.get(bd_name)
-            if gateway_ip:
-                bd_custom_fields[BD_GATEWAY_IP_CF_NAME] = gateway_ip
-            l2vpn = ensure_l2vpn(
-                nb,
-                name=bd_name,
-                type_slug="vxlan-evpn",
-                description=bd_description,
-                identifier=identifier,
-                tag_ids=[tag.id],
-                custom_fields=bd_custom_fields,
-            )
-            if l2vpn is None:
-                l2vpn_supported = False
-                continue
-            l2vpn_lookup[bd_name] = l2vpn
-
-    def ensure_vlan_from_label(label_key: str) -> Any | None:
-        if not label_key.startswith("eda.nokia.com/macvrf"):
-            return None
-        suffix = label_key.split("/")[-1]
-        if suffix in vlan_lookup:
-            return vlan_lookup[suffix]
-        vlan_id_fragment = suffix.replace("macvrf", "")
-        try:
-            vlan_id = int(vlan_id_fragment)
-        except ValueError:
-            return None
-        vlan_obj = ensure_vlan(
-            nb,
-            site_id=site.id,
-            name=suffix,
-            vid=vlan_id,
-            description=f"EDA demo VLAN derived from label {suffix}",
-            tag_ids=[tag.id],
-        )
-        vlan_lookup[suffix] = vlan_obj
-        return vlan_obj
-
-    if service_edge_interfaces:
-        info(
-            f"Deriving VLANs from {len(service_edge_interfaces)} edge interface label definitions..."
-        )
-    else:
-        info("No edge interface label definitions to derive VLANs from.")
-    for edge_def in service_edge_interfaces:
-        for label_key, label_value in edge_def.get("labels", {}).items():
-            if str(label_value).lower() != "true":
-                continue
-            ensure_vlan_from_label(label_key)
-
-    # Clean up existing demo cables to ensure idempotency.
-    info(f"Removing existing demo cables tagged '{tag.slug}'...")
-    for cable in nb.dcim.cables.filter(tag=tag.slug, limit=0):
-        cable.delete()
-    info("Existing demo cables removed.")
-
-    role_colors = defaultdict(lambda: "9e9e9e")
-    role_colors.update({"spine": "1f77b4", "leaf": "2ca02c"})
-
-    role_names = {node["role"] for node in toponodes}
-    info(f"Ensuring device roles for {len(role_names)} unique roles...")
-    roles: Dict[str, Any] = {}
-    for role_name in role_names:
-        roles[role_name] = ensure_device_role(nb, role_name, role_colors[role_name])
-
-    # Ensure platforms exist for combinations of platform/version to preserve version metadata.
-    unique_platform_names = {node["platform"] for node in toponodes}
-    info(
-        f"Ensuring platforms for {len(unique_platform_names)} unique platform values..."
-    )
     platforms: Dict[str, Any] = {}
-    for node in toponodes:
-        platform_name = node["platform"]
-        if platform_name not in platforms:
-            platforms[platform_name] = ensure_platform(
-                nb,
-                platform_name,
-                manufacturer_id=manufacturer.id,
-            )
-
-    # Map to devices.
-    info(f"Ensuring {total_toponodes} devices...")
     devices: Dict[str, Any] = {}
-    for index, node in enumerate(toponodes, 1):
-        info(
-            f"[Device {index}/{total_toponodes}] Ensuring {node['name']} ({node['role']})."
-        )
-        device_type = resolve_device_type(node["platform"])
+    interface_cache: Dict[str, Dict[str, Any]] = {}
+
+    for node in toponodes:
+        platform_name = node.get("platform") or "SR Linux"
+        platform = platforms.get(platform_name)
+        if not platform:
+            platform = ensure_platform(nb, platform_name, manufacturer.id)
+            platforms[platform_name] = platform
+
+        device_type = resolve_device_type(device_types, platform_name)
         if not device_type:
             print(
-                f"Device type '{node['platform']}' not found for node '{node['name']}'",
+                f"Skipped node {node.get('name')} because device type '{platform_name}' is missing in NetBox.",
                 file=sys.stderr,
             )
             continue
-        platform_obj = platforms[node["platform"]]
-        custom_fields_payload: Dict[str, Any] = {}
-        operating_system = node.get("operating_system") or "srl"
-        if operating_system:
-            custom_fields_payload["operatingSystem"] = operating_system
-        version_value = node.get("version")
-        if version_value:
-            custom_fields_payload["version"] = version_value
-        on_boarded = node.get("on_boarded")
-        if on_boarded is not None:
-            custom_fields_payload["onBoarded"] = bool(on_boarded)
-        node_profile_ref = node.get("node_profile")
-        if node_profile_ref:
-            custom_fields_payload["nodeProfile"] = node_profile_ref
+
+        role_name = node.get("role") or "leaf"
+        role = ensure_device_role(nb, role_name)
+
+        node_cf = {
+            "operatingSystem": node.get("operating_system") or "srl",
+            "version": node.get("version") or "25.7",
+            "onBoarded": bool(node.get("on_boarded", False)),
+        }
+        if node.get("node_profile"):
+            node_cf["nodeProfile"] = node["node_profile"]
 
         device = ensure_device(
             nb,
             name=node["name"],
             device_type_id=device_type.id,
-            role_id=roles[node["role"]].id,
+            role_id=role.id,
+            platform_id=platform.id,
             site_id=site.id,
-            platform_id=platform_obj.id,
-            tag_ids=[tag.id],
-            custom_fields=custom_fields_payload,
+            custom_fields=node_cf,
+            tag_ids=[demo_tag.id],
         )
         devices[node["name"]] = device
 
-        # Ensure management interface/IP.
         mgmt_iface = ensure_interface(
             nb,
             device_id=device.id,
             name="mgmt0",
-            type_slug="virtual",
+            iface_type=MGMT_INTERFACE_TYPE,
             description="Management",
         )
-        ensure_primary_ip(
-            nb, device=device, interface=mgmt_iface, address=node["production_ipv4"]
-        )
+        interface_cache.setdefault(device.name, {})["mgmt0"] = mgmt_iface
 
-    # Create data-plane interfaces based on topology definitions.
-    interface_cache: Dict[str, Dict[str, Any]] = defaultdict(dict)
-    total_interface_groups = len(interface_groups)
-    if total_interface_groups:
-        info(
-            f"Ensuring interfaces for {total_interface_groups} topology interface definitions..."
-        )
-    else:
-        info(
-            "No topology interface definitions found; skipping interface provisioning."
-        )
-    for idx, iface_def in enumerate(interface_groups, 1):
-        group_label = (
-            iface_def.get("name")
-            or iface_def.get("description")
-            or f"interface-group-{idx}"
-        )
-        info(
-            f"[Interface group {idx}/{total_interface_groups}] Processing {group_label}..."
-        )
-        description = iface_def.get("description")
-        for member in iface_def.get("members", []):
-            node_name = member["node"]
-            iface_name = member["interface"]
-            device = devices.get(node_name)
-            if not device:
-                print(
-                    f"Skipping interface '{iface_name}' on '{node_name}' because device is missing",
-                    file=sys.stderr,
-                )
+        prod_ip = node.get("production_ipv4")
+        if prod_ip:
+            ensure_primary_ip(nb, device=device, interface=mgmt_iface, address=prod_ip)
+
+    for group in topolink_iface_groups:
+        description = group.get("description")
+        for member in group.get("members") or []:
+            node_name = member.get("node")
+            iface_name = member.get("interface")
+            if node_name not in devices or not iface_name:
                 continue
+            device = devices[node_name]
             iface = ensure_interface(
                 nb,
                 device_id=device.id,
                 name=iface_name,
-                type_slug="100gbase-x-qsfp28",
+                iface_type=FABRIC_INTERFACE_TYPE,
                 description=description,
-                tag_id=tag.id,
+                tag_ids=[demo_tag.id],
             )
-            interface_cache[node_name][iface_name] = iface
+            interface_cache.setdefault(node_name, {})[iface_name] = iface
 
-    interface_vlan_updates = 0
-    edge_service_interface_ids: Set[int] = set()
+    info("Refreshing demo cables (removing existing ones tagged for the demo)...")
+    for cable in nb.dcim.cables.filter(tag=demo_tag.slug, limit=0):
+        cable.delete()
 
-    total_edge_services = len(service_edge_interfaces)
-    if total_edge_services:
-        info(f"Processing {total_edge_services} edge service definitions...")
-    else:
-        info("No edge service definitions provided; skipping edge service processing.")
-    for edge_index, edge_def in enumerate(service_edge_interfaces, 1):
-        edge_name = edge_def.get("name") or f"edge-{edge_index}"
-        info(
-            f"[Edge service {edge_index}/{total_edge_services}] Processing {edge_name}..."
-        )
-        edge_labels = edge_def.get("labels", {})
-        vlan_targets: List[Any] = []
-        edge_label_tag_ids: Set[int] = set()
-        for label_key, label_value in edge_labels.items():
-            if isinstance(label_value, bool):
-                label_enabled = label_value
-            else:
-                label_enabled = str(label_value).lower() in {"true", "yes", "on", "1"}
-            if not label_enabled:
-                continue
-            vlan_obj = ensure_vlan_from_label(label_key)
-            if vlan_obj:
-                vlan_targets.append(vlan_obj)
-            label_tag = label_tag_cache.get(label_key)
-            if label_tag is None:
-                label_tag = ensure_tag(nb, label_key)
-                label_tag_cache[label_key] = label_tag
-            label_tag_id = getattr(label_tag, "id", None)
-            if label_tag_id is not None:
-                edge_label_tag_ids.add(label_tag_id)
-
-        spec = edge_def.get("spec") or {}
-        service_type = str(spec.get("type") or "").lower()
-        bundle_id = None
-        if service_type == "lag":
-            bundle_id = edge_def.get("name") or "edge-bundle"
-
-        for member in spec.get("members", []):
-            node_name = member.get("node")
-            iface_name = member.get("interface")
-            if not node_name or not iface_name:
-                continue
-            device = devices.get(node_name)
-            if not device:
-                continue
-            iface_obj = interface_cache.get(node_name, {}).get(iface_name)
-            if not iface_obj:
-                iface_obj = ensure_interface(
-                    nb,
-                    device_id=device.id,
-                    name=iface_name,
-                    type_slug="10gbase-x-sfpp",
-                    description=edge_def.get("name"),
-                    tag_id=edge_tag.id,
-                )
-                interface_cache.setdefault(node_name, {})[iface_name] = iface_obj
-            if not iface_obj:
-                continue
-
-            desired_tag_ids = sorted({tag.id, edge_tag.id}.union(edge_label_tag_ids))
-            update_payload: Dict[str, Any] = {"tags": desired_tag_ids}
-
-            if vlan_targets:
-                current_tagged_ids = {
-                    vlan.id for vlan in getattr(iface_obj, "tagged_vlans", [])
-                }
-                desired_tagged_ids = current_tagged_ids | {
-                    vlan.id for vlan in vlan_targets
-                }
-                current_mode = str(getattr(iface_obj, "mode", "") or "").lower()
-                if desired_tagged_ids != current_tagged_ids or current_mode != "tagged":
-                    interface_vlan_updates += 1
-                update_payload["tagged_vlans"] = sorted(desired_tagged_ids)
-                update_payload["mode"] = "tagged"
-
-            if bundle_id:
-                existing_cf = (getattr(iface_obj, "custom_fields", {}) or {}).get(
-                    EDGE_LAG_CF_NAME
-                )
-                if existing_cf != bundle_id:
-                    update_payload.setdefault("custom_fields", {})[EDGE_LAG_CF_NAME] = (
-                        bundle_id
-                    )
-
-            iface_obj.update(update_payload)
-            iface_obj = nb.dcim.interfaces.get(id=iface_obj.id)
-            interface_cache[node_name][iface_name] = iface_obj
-            edge_service_interface_ids.add(iface_obj.id)
-
-    # Build cables for each logical link.
-    total_link_groups = len(topolink_groups)
-    total_topology_links = sum(len(group.get("links", [])) for group in topolink_groups)
-    if total_topology_links:
-        info(
-            f"Creating cables for {total_topology_links} topology links across {total_link_groups} groups..."
-        )
-    else:
-        info("No topology links defined; skipping cable creation.")
-    for group_index, link_group in enumerate(topolink_groups, 1):
-        group_name = link_group.get("name") or f"link-group-{group_index}"
-        info(
-            f"[Cable group {group_index}/{total_link_groups}] Processing {group_name}..."
-        )
-        for link in link_group.get("links", []):
-            local = link.get("local", {})
-            remote = link.get("remote", {})
+    total_links = 0
+    for group in topolink_groups:
+        group_name = group.get("name") or "link-group"
+        for link in group.get("links") or []:
+            total_links += 1
+            local = link.get("local") or {}
+            remote = link.get("remote") or {}
             local_device = devices.get(local.get("node"))
             remote_device = devices.get(remote.get("node"))
             if not local_device or not remote_device:
-                print(
-                    f"Skipping link '{link_group['name']}' due to missing devices",
-                    file=sys.stderr,
-                )
                 continue
-            local_iface = interface_cache.get(local.get("node"), {}).get(
+            local_iface = interface_cache.get(local_device.name, {}).get(
                 local.get("interface")
             )
-            remote_iface = interface_cache.get(remote.get("node"), {}).get(
+            remote_iface = interface_cache.get(remote_device.name, {}).get(
                 remote.get("interface")
             )
             if not local_iface or not remote_iface:
+                continue
+            speed = link.get("speed")
+            iface_type = interface_type_for_speed(speed)
+            local_type_value = getattr(getattr(local_iface, "type", None), "value", None)
+            if iface_type != local_type_value:
+                local_iface.update({"type": iface_type})
+                local_iface = nb.dcim.interfaces.get(id=local_iface.id)
+                interface_cache[local_device.name][local_iface.name] = local_iface
+            remote_type_value = getattr(getattr(remote_iface, "type", None), "value", None)
+            if iface_type != remote_type_value:
+                remote_iface.update({"type": iface_type})
+                remote_iface = nb.dcim.interfaces.get(id=remote_iface.id)
+                interface_cache[remote_device.name][remote_iface.name] = remote_iface
+            payload = {
+                "label": group_name,
+                "status": "connected",
+                "type": "smf",
+                "tags": [demo_tag.id, isl_tag.id],
+                "termination_a_type": "dcim.interface",
+                "termination_a_id": local_iface.id,
+                "termination_b_type": "dcim.interface",
+                "termination_b_id": remote_iface.id,
+                "a_terminations": [
+                    {"object_type": "dcim.interface", "object_id": local_iface.id}
+                ],
+                "b_terminations": [
+                    {"object_type": "dcim.interface", "object_id": remote_iface.id}
+                ],
+            }
+            info(
+                f"Creating cable '{group_name}' between {local_device.name} {local_iface.name} "
+                f"and {remote_device.name} {remote_iface.name}"
+            )
+            try:
+                cable = create_cable(nb, payload)
+                info(
+                    f"Linked {local_device.name} {local_iface.name} <-> "
+                    f"{remote_device.name} {remote_iface.name} as {cable.label} (id={cable.id})"
+                )
+            except Exception as exc:  # pragma: no cover - runtime guard
                 print(
-                    f"Skipping link '{link_group['name']}' due to missing interfaces",
+                    "Failed to create cable between",
+                    local_device.name,
+                    local_iface.name,
+                    "and",
+                    remote_device.name,
+                    remote_iface.name,
+                    ":",
+                    exc,
+                    "\nPayload:",
+                    json.dumps(payload, indent=2),
                     file=sys.stderr,
                 )
-                continue
-            cable = ensure_cable(
-                nb,
-                name=link_group["name"],
-                a_iface=local_iface,
-                b_iface=remote_iface,
-                cable_type="smf",
-                tag_ids=[tag.id, isl_tag.id],
-            )
-            print(
-                "Linked",
-                local.get("node"),
-                local.get("interface"),
-                "<->",
-                remote.get("node"),
-                remote.get("interface"),
-                f"as {cable.label} (id={cable.id})",
-            )
+                raise
 
-    info("Topology updates complete. Generating summary report...")
-    summary_lines = [
-        f"Devices ensured: {len(devices)}",
-        f"Data-plane interfaces ensured: {sum(len(ifaces) for ifaces in interface_cache.values())}",
-        f"Edge interface definitions processed: {len(service_edge_interfaces)}",
-        f"Interfaces tagged for edge services: {len(edge_service_interface_ids)}",
-        f"Interface VLAN assignments updated: {interface_vlan_updates}",
-        f"VLANs ensured: {len(vlan_lookup)} ({', '.join(sorted(vlan_lookup.keys()))})"
-        if vlan_lookup
-        else "VLANs ensured: 0",
-        f"VRFs ensured: {len(vrf_lookup)} ({', '.join(sorted(vrf_lookup.keys()))})"
-        if vrf_lookup
-        else "VRFs ensured: 0",
-        f"L2VPNs ensured: {len(l2vpn_lookup)} ({', '.join(sorted(l2vpn_lookup.keys()))})"
-        if l2vpn_lookup
-        else "L2VPNs ensured: 0",
-        f"IRB gateway IPs ensured: {irb_ip_addresses_ensured}",
-    ]
+    info(f"Ensured {total_links} physical links.")
 
-    print("\nNetBox update summary:")
-    for line in summary_lines:
-        print(f"  - {line}")
+    edge_specs = parse_edge_interfaces(services)
+    vnet_specs = parse_virtual_networks(services)
 
-    if not l2vpn_supported and service_virtual_networks:
-        print(
-            "  - L2VPN endpoint unavailable in NetBox; skipped creation of L2VPN objects"
-        )
+    label_tag_cache: Dict[str, Any] = {}
+    ensure_services(
+        nb,
+        site_id=site.id,
+        tag_ids=[demo_tag.id],
+        edge_tag_id=edge_tag.id,
+        label_tag_cache=label_tag_cache,
+        edge_specs=edge_specs,
+        vnets=vnet_specs,
+        interface_cache=interface_cache,
+        devices=devices,
+    )
 
-    print("\nTopology push to NetBox completed successfully.")
+    info("NetBox population complete.")
     return 0
 
 
