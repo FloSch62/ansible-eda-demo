@@ -2,3 +2,4 @@
 ansible-collections/
 .venv/
 patch.sh
+*/bkp/**

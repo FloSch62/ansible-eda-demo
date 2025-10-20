@@ -1,0 +1,183 @@
+---
+- name: Determine effective EDA namespace
+  ansible.builtin.set_fact:
+    eda_namespace_effective: "{{ eda_namespace | default('eda') }}"
+
+- name: Initialise transaction resource list
+  ansible.builtin.set_fact:
+    transaction_resources: []
+
+- name: Append TopoNode resources
+  ansible.builtin.set_fact:
+    transaction_resources: "{{ transaction_resources + [resource_map] }}"
+  vars:
+    production_address: "{{ ({'productionAddress': {'ipv4': item.production_ipv4}} if (item.production_ipv4 | default('')) else {}) | to_json | from_json }}"
+    base_labels: "{{ {
+      'demo.nokia.com/source': 'uv-ansible-toponodes',
+      'eda.nokia.com/role': item.role | default('leaf', true),
+      'eda.nokia.com/security-profile': item.security_profile | default('managed', true)
+    } | to_json | from_json }}"
+    resource_map: "{{ {
+      'apiVersion': 'core.eda.nokia.com/v1',
+      'kind': 'TopoNode',
+      'metadata': {
+        'name': item.name,
+        'namespace': eda_namespace_effective,
+        'labels': base_labels
+      },
+      'spec': ({
+        'nodeProfile': item.node_profile,
+        'operatingSystem': item.operating_system | default('srl'),
+        'platform': item.platform,
+        'version': item.version,
+        'onBoarded': (item.on_boarded | default(false)) | bool
+      } | combine(production_address))
+    } | to_json | from_json }}"
+  loop: "{{ toponodes | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Append interface resources from NetBox links
+  ansible.builtin.set_fact:
+    transaction_resources: "{{ transaction_resources + [resource_map] }}"
+  vars:
+    merged_labels: "{{ {'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})) }}"
+    base_spec: "{{ item.spec if (item.spec is defined and item.spec is not none) else {} }}"
+    member_spec: "{{ base_spec if base_spec else {
+      'type': item.type | default('interface'),
+      'members': item.members | default([])
+    } }}"
+    spec_with_description: "{{ member_spec | combine({'description': item.description}, recursive=True) if (item.description | default('') | length) > 0 else member_spec }}"
+    spec_base: "{{ spec_with_description | to_json | from_json }}"
+    label_items: "{{ item.labels | default({}) | dict2items }}"
+    vlan_label_items: "{{ label_items | selectattr('key', 'match', '^eda\\.nokia\\.com/(macvrf|vlan)') | list }}"
+    encap_map: "{{ {'encapType': ('dot1q' if (vlan_label_items | length) > 0 else None)} | to_json | from_json }}"
+    spec_with_encap: "{{ spec_base | combine(encap_map, recursive=True) }}"
+    resource_map: "{{ {
+      'apiVersion': 'interfaces.eda.nokia.com/v1alpha1',
+      'kind': 'Interface',
+      'metadata': {
+        'name': item.name,
+        'namespace': item.namespace | default(eda_namespace_effective),
+        'labels': merged_labels
+      },
+      'spec': spec_with_encap
+    } | to_json | from_json }}"
+  loop: "{{ topolink_interfaces | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.name is string) and ('.' not in item.name)
+
+- name: Append edge interface resources
+  ansible.builtin.set_fact:
+    transaction_resources: "{{ transaction_resources + [resource_map] }}"
+  vars:
+    merged_labels: "{{ {'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})) }}"
+    resource_map: "{{ {
+      'apiVersion': 'interfaces.eda.nokia.com/v1alpha1',
+      'kind': 'Interface',
+      'metadata': {
+        'name': item.name,
+        'namespace': item.namespace | default(eda_namespace_effective),
+        'labels': merged_labels
+      },
+      'spec': item.spec
+    } | to_json | from_json }}"
+  loop: "{{ edge_interfaces | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.name is string) and ('.' not in item.name)
+
+- name: Append TopoLink resources
+  ansible.builtin.set_fact:
+    transaction_resources: "{{ transaction_resources + [resource_map] }}"
+  vars:
+    merged_labels: "{{ {'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})) }}"
+    resource_map: "{{ {
+      'apiVersion': 'core.eda.nokia.com/v1',
+      'kind': 'TopoLink',
+      'metadata': {
+        'name': item.name,
+        'namespace': item.namespace | default(eda_namespace_effective),
+        'labels': merged_labels
+      },
+      'spec': {
+        'links': item.links | default([])
+      }
+    } | to_json | from_json }}"
+  loop: "{{ topolinks | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default('TopoLink') }}"
+
+- name: Append Fabric resources
+  ansible.builtin.set_fact:
+    transaction_resources: "{{ transaction_resources + [resource_map] }}"
+  vars:
+    merged_labels: "{{ {'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})) }}"
+    resource_map: "{{ {
+      'apiVersion': item.apiVersion | default('fabrics.eda.nokia.com/v1alpha1'),
+      'kind': item.kind | default('Fabric'),
+      'metadata': {
+        'name': item.name,
+        'namespace': item.namespace | default(eda_namespace_effective),
+        'labels': merged_labels
+      },
+      'spec': item.spec | default({})
+    } | to_json | from_json }}"
+  loop: "{{ fabrics | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default('fabric') }}"
+
+- name: Append Virtual Network resources
+  ansible.builtin.set_fact:
+    transaction_resources: "{{ transaction_resources + [resource_map] }}"
+  vars:
+    merged_labels: "{{ {'demo.nokia.com/source': 'uv-ansible-toponodes'} | combine(item.labels | default({})) }}"
+    resource_map: "{{ {
+      'apiVersion': item.apiVersion | default('services.eda.nokia.com/v1'),
+      'kind': item.kind | default('VirtualNetwork'),
+      'metadata': {
+        'name': item.name,
+        'namespace': item.namespace | default(eda_namespace_effective),
+        'labels': merged_labels
+      },
+      'spec': item.spec | default({})
+    } | to_json | from_json }}"
+  loop: "{{ virtual_networks | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default('virtual-network') }}"
+
+- name: Initialise transaction resource counts
+  ansible.builtin.set_fact:
+    transaction_resource_counts: {}
+
+- name: Accumulate transaction resource counts by kind
+  ansible.builtin.set_fact:
+    transaction_resource_counts: "{{ transaction_resource_counts | combine({ item.kind: (transaction_resource_counts.get(item.kind, 0) + 1) }) }}"
+  loop: "{{ transaction_resources }}"
+  loop_control:
+    label: "{{ item.kind }}"
+
+- name: Ensure transaction artifact directory exists
+  ansible.builtin.file:
+    path: "{{ transaction_manifest_path | dirname }}"
+    state: directory
+    mode: '0755'
+
+- name: Render transaction manifest
+  ansible.builtin.copy:
+    dest: "{{ transaction_manifest_path }}"
+    mode: '0644'
+    content: |-
+      {% for resource in transaction_resources %}
+      ---
+      {{ resource | to_nice_yaml(indent=2) | regex_replace('\\A---\\n', '') }}
+      {% endfor %}
+
+- name: Display transaction summary
+  ansible.builtin.debug:
+    msg:
+      description: "{{ transaction_description }}"
+      transaction_manifest: "{{ transaction_manifest_path }}"
+      resource_counts: "{{ transaction_resource_counts }}"
+      total_resources: "{{ transaction_resources | length }}"

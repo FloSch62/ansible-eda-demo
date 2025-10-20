@@ -1,0 +1,126 @@
+---
+- name: Evaluate transaction execution flags
+  ansible.builtin.set_fact:
+    __eda_run_dry: "{{ (eda_transaction_run_dry | default(true)) | bool }}"
+    __eda_run_execute: "{{ (eda_transaction_run_execute | default(true)) | bool }}"
+
+- name: Authenticate with Nokia EDA
+  ansible.builtin.include_tasks: authenticate.yml
+  when: __eda_run_dry or __eda_run_execute
+
+- name: Initialise transaction change requests
+  ansible.builtin.set_fact:
+    transaction_change_requests: []
+
+- name: Build transaction change requests
+  ansible.builtin.set_fact:
+    transaction_change_requests: "{{ transaction_change_requests + [ {'type': { 'replace': { 'value': item }}} ] }}"
+  loop: "{{ transaction_resources | default([]) }}"
+  loop_control:
+    label: "{{ item.kind }}"
+
+- name: Ensure transaction change requests exist
+  ansible.builtin.assert:
+    that:
+      - (transaction_change_requests | length) > 0
+    fail_msg: "Generated transaction contains no change requests."
+
+- name: Run dry run transaction
+  when: __eda_run_dry
+  block:
+    - name: Prepare dry run transaction body
+      ansible.builtin.set_fact:
+        eda_transaction_request_dry_run: >-
+          {{ {
+            'description': transaction_description ~ ' (dry run)',
+            'dryRun': True,
+            'resultType': 'normal',
+            'retain': True,
+            'crs': transaction_change_requests
+          } }}
+
+    - name: Submit dry run transaction
+      nokia.eda_core_v1.transaction.v2.transaction:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token | default(omit) }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        description: "{{ eda_transaction_request_dry_run.description }}"
+        dryRun: true
+        resultType: "{{ eda_transaction_request_dry_run.resultType }}"
+        retain: "{{ eda_transaction_request_dry_run.retain }}"
+        crs: "{{ eda_transaction_request_dry_run.crs }}"
+      register: eda_transaction_dry_run
+
+    - name: Display dry run transaction identifier
+      ansible.builtin.debug:
+        msg: "Submitted dry run transaction {{ eda_transaction_dry_run.result.id }} with {{ transaction_change_requests | length }} change request(s)."
+
+    - name: Wait for dry run execution result
+      nokia.eda_core_v1.transaction.v2.result.execution:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token | default(omit) }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        transactionId: "{{ eda_transaction_dry_run.result.id }}"
+        waitForComplete: true
+        failOnErrors: true
+      register: eda_transaction_dry_run_execution
+
+    - name: Summarize dry run outcome
+      ansible.builtin.debug:
+        msg:
+          summary: "Dry run {{ eda_transaction_dry_run.result.id }} completed: {{ eda_transaction_dry_run_execution.result.executionSummary | default('no execution summary returned') | replace('µ', 'u') }}."
+          proposed_resources: "{{ transaction_resource_counts }}"
+
+- name: Note skipped dry run transaction
+  ansible.builtin.debug:
+    msg: "EDA transaction dry run skipped (eda_transaction_run_dry=false)."
+  when: not __eda_run_dry
+
+- name: Run committed transaction
+  when: __eda_run_execute and (not __eda_run_dry or (eda_transaction_dry_run_execution is defined and eda_transaction_dry_run_execution is success))
+  block:
+    - name: Prepare execute transaction body
+      ansible.builtin.set_fact:
+        eda_transaction_request_execute: >-
+          {{ {
+            'description': transaction_description,
+            'dryRun': False,
+            'resultType': 'normal',
+            'retain': True,
+            'crs': transaction_change_requests
+          } }}
+
+    - name: Submit transaction
+      nokia.eda_core_v1.transaction.v2.transaction:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token | default(omit) }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        description: "{{ eda_transaction_request_execute.description }}"
+        dryRun: false
+        resultType: "{{ eda_transaction_request_execute.resultType }}"
+        retain: "{{ eda_transaction_request_execute.retain }}"
+        crs: "{{ eda_transaction_request_execute.crs }}"
+      register: eda_transaction_execute
+
+    - name: Wait for transaction execution result
+      nokia.eda_core_v1.transaction.v2.result.execution:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token | default(omit) }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        transactionId: "{{ eda_transaction_execute.result.id }}"
+        waitForComplete: true
+        failOnErrors: true
+      register: eda_transaction_execution
+
+    - name: Summarize transaction outcome
+      ansible.builtin.debug:
+        msg:
+          summary: "Transaction {{ eda_transaction_execute.result.id }} completed: {{ eda_transaction_execution.result.executionSummary | default('no execution summary returned') | replace('µ', 'u') }}."
+          changed_crs: "{{ eda_transaction_execution.result.changedCrs | default([]) | length }}"
+          nodes_with_config_changes: "{{ eda_transaction_execution.result.nodesWithConfigChanges | default([]) | length }}"
+          topology_supported: "{{ (eda_transaction_execution.result.topologySupported | default(false)) | ternary('yes', 'no') }}"
+
+- name: Note skipped transaction execution
+  ansible.builtin.debug:
+    msg: "EDA transaction execution skipped (eda_transaction_run_execute=false)."
+  when: not __eda_run_execute

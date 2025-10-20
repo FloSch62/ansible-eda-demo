@@ -1,0 +1,120 @@
+---
+- name: Validate NetBox connection variables
+  ansible.builtin.assert:
+    that:
+      - netbox_api_endpoint is defined
+      - netbox_api_endpoint | length > 0
+      - netbox_token is defined
+      - netbox_token | length > 0
+      - netbox_topology_tag is defined
+      - netbox_topology_tag | length > 0
+    fail_msg: >-
+      Provide netbox_api_endpoint, netbox_token, and netbox_topology_tag to build the EDA transaction from NetBox.
+
+- name: Fetch tagged NetBox devices
+  ansible.builtin.set_fact:
+    netbox_devices_raw: >-
+      {{ lookup('netbox.netbox.nb_lookup', 'devices',
+                api_endpoint=netbox_api_endpoint,
+                token=netbox_token,
+                validate_certs=netbox_validate_certs | default(true),
+                api_filter='tag=' ~ netbox_topology_tag) }}
+
+- name: Fetch tagged NetBox interfaces
+  ansible.builtin.set_fact:
+    netbox_interfaces_raw: >-
+      {{ lookup('netbox.netbox.nb_lookup', 'interfaces',
+                api_endpoint=netbox_api_endpoint,
+                token=netbox_token,
+                validate_certs=netbox_validate_certs | default(true),
+                api_filter='tag=' ~ netbox_topology_tag) }}
+
+- name: Fetch tagged NetBox cables
+  ansible.builtin.set_fact:
+    netbox_cables_raw: >-
+      {{ lookup('netbox.netbox.nb_lookup', 'cables',
+                api_endpoint=netbox_api_endpoint,
+                token=netbox_token,
+                validate_certs=netbox_validate_certs | default(true),
+                api_filter='tag=' ~ netbox_topology_tag) }}
+
+- name: Fetch tagged NetBox VLANs
+  ansible.builtin.set_fact:
+    netbox_vlans_raw: >-
+      {{ lookup('netbox.netbox.nb_lookup', 'vlans',
+                api_endpoint=netbox_api_endpoint,
+                token=netbox_token,
+                validate_certs=netbox_validate_certs | default(true),
+                api_filter='tag=' ~ netbox_topology_tag) }}
+
+- name: Fetch tagged NetBox VRFs
+  ansible.builtin.uri:
+    url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/ipam/vrfs/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: "{{ netbox_validate_certs | default(true) }}"
+    return_content: true
+    status_code: 200
+    timeout: 30
+  register: netbox_vrfs_response
+
+- name: Fetch tagged NetBox L2VPNs
+  ansible.builtin.uri:
+    url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/vpn/l2vpns/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+    validate_certs: "{{ netbox_validate_certs | default(true) }}"
+    return_content: true
+    status_code: 200
+    timeout: 30
+  register: netbox_l2vpns_response
+
+- name: Normalise NetBox lookup results
+  ansible.builtin.set_fact:
+    netbox_device_records: "{{ netbox_devices_raw | default([]) | map(attribute='value') | list }}"
+    netbox_interface_records: "{{ netbox_interfaces_raw | default([]) | map(attribute='value') | list }}"
+    netbox_cable_records: "{{ netbox_cables_raw | default([]) | map(attribute='value') | list }}"
+    netbox_vlan_records: "{{ netbox_vlans_raw | default([]) | map(attribute='value') | list }}"
+    netbox_vrf_records: "{{ (netbox_vrfs_response.json.results | default([])) if (netbox_vrfs_response.json | default(None)) else [] }}"
+    netbox_l2vpn_records: "{{ (netbox_l2vpns_response.json.results | default([])) if (netbox_l2vpns_response.json | default(None)) else [] }}"
+
+- name: Ensure NetBox returned devices
+  ansible.builtin.assert:
+    that:
+      - netbox_device_records | length > 0
+    fail_msg: >-
+      No NetBox devices matched tag "{{ netbox_topology_tag }}". Update the tag or populate NetBox and retry.
+
+- name: Ensure NetBox topology template exists
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/templates/netbox_topology.json.j2"
+  register: netbox_topology_template
+
+- name: Abort when NetBox topology template is missing
+  ansible.builtin.fail:
+    msg: "Missing template {{ playbook_dir }}/templates/netbox_topology.json.j2"
+  when: not netbox_topology_template.stat.exists
+
+- name: Build NetBox topology summary
+  ansible.builtin.set_fact:
+    netbox_topology: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/netbox_topology.json.j2') | from_json }}"
+
+- name: Extract topology components from NetBox data
+  ansible.builtin.set_fact:
+    toponodes: "{{ netbox_topology.toponodes | default([]) }}"
+    topolink_interfaces: "{{ netbox_topology.topolink_interfaces | default([]) }}"
+    topolinks: "{{ netbox_topology.topolinks | default([]) }}"
+    edge_interfaces: "{{ netbox_topology.edge_interfaces | default([]) }}"
+    virtual_networks: "{{ netbox_topology.virtual_networks | default([]) }}"
+
+- name: Summarise NetBox topology content
+  ansible.builtin.debug:
+    msg:
+      nodes: "{{ toponodes | length }}"
+      interfaces: "{{ topolink_interfaces | length }}"
+      edge_interfaces: "{{ edge_interfaces | length }}"
+      links: "{{ topolinks | length }}"
+      virtual_networks: "{{ virtual_networks | length }}"
+      fabrics: "{{ fabrics | default([]) | length }}"

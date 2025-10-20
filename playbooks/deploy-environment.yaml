@@ -1,173 +1,25 @@
 ---
-- name: Provision demo topology via Nokia EDA transactions
+- name: Build NetBox-driven EDA transaction
   hosts: localhost
   gather_facts: false
   vars:
     transaction_manifest_path: "{{ playbook_dir }}/artifacts/eda-transaction.yaml"
+    transaction_description: "{{ eda_transaction_description | default('NetBox topology transaction') }}"
   vars_files:
     - ../vars/fabrics/fabrics.yml
+
   pre_tasks:
-    - name: Load local topology definitions when NetBox is disabled
-      ansible.builtin.include_vars:
-        file: "{{ item }}"
-      loop:
-        - ../vars/topology/toponodes.yml
-        - ../vars/topology/topolinks.yml
-        - ../vars/services/services.yml
-      when: (topology_source | default('local')) | lower != 'netbox'
-
-    - name: Cache default edge link definitions
+    - name: Ensure fabric list is defined
       ansible.builtin.set_fact:
-        cx_local_edge_topolinks: "{{ topolinks | default([]) | selectattr('name', 'match', '^edge-link-') | list }}"
-        cx_local_edge_interfaces: "{{ topolink_interfaces | default([]) | selectattr('name', 'match', '^edge-') | list }}"
-      when: cx_local_edge_topolinks is not defined
-
-    - name: Optionally harvest topology data from NetBox
-      when: (topology_source | default('local')) | lower == 'netbox'
-      block:
-        - name: Validate NetBox lookup configuration
-          ansible.builtin.assert:
-            that:
-              - netbox_api_endpoint is defined
-              - netbox_api_endpoint | length > 0
-              - netbox_token is defined
-              - netbox_token | length > 0
-              - netbox_topology_tag is defined
-              - netbox_topology_tag | length > 0
-            fail_msg: >-
-              Provide netbox_api_endpoint, netbox_token, and netbox_topology_tag when
-              topology_source is set to "netbox".
-
-        - name: Fetch tagged devices from NetBox
-          ansible.builtin.set_fact:
-            netbox_devices: >-
-              {{ lookup('netbox.netbox.nb_lookup', 'devices',
-                        api_endpoint=netbox_api_endpoint,
-                        token=netbox_token,
-                        validate_certs=netbox_validate_certs | default(true),
-                        api_filter='tag=' ~ netbox_topology_tag) }}
-
-        - name: Fetch tagged interfaces from NetBox
-          ansible.builtin.set_fact:
-            netbox_interfaces: >-
-              {{ lookup('netbox.netbox.nb_lookup', 'interfaces',
-                        api_endpoint=netbox_api_endpoint,
-                        token=netbox_token,
-                        validate_certs=netbox_validate_certs | default(true),
-                        api_filter='tag=' ~ netbox_topology_tag) }}
-
-        - name: Fetch tagged cables from NetBox
-          ansible.builtin.set_fact:
-            netbox_cables: >-
-              {{ lookup('netbox.netbox.nb_lookup', 'cables',
-                        api_endpoint=netbox_api_endpoint,
-                        token=netbox_token,
-                        validate_certs=netbox_validate_certs | default(true),
-                        api_filter='tag=' ~ netbox_topology_tag) }}
-
-        - name: Fetch tagged VLANs from NetBox
-          ansible.builtin.set_fact:
-            netbox_vlans: >-
-              {{ lookup('netbox.netbox.nb_lookup', 'vlans',
-                        api_endpoint=netbox_api_endpoint,
-                        token=netbox_token,
-                        validate_certs=netbox_validate_certs | default(true),
-                        api_filter='tag=' ~ netbox_topology_tag) }}
-
-        - name: Fetch tagged VRFs from NetBox
-          ansible.builtin.uri:
-            url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/ipam/vrfs/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
-            method: GET
-            headers:
-              Authorization: "Token {{ netbox_token }}"
-            validate_certs: "{{ netbox_validate_certs | default(true) }}"
-            return_content: true
-            status_code: 200
-            timeout: 30
-          register: netbox_vrfs_response
-
-        - name: Fetch tagged L2VPNs from NetBox
-          ansible.builtin.uri:
-            url: "{{ (netbox_api_endpoint | regex_replace('/+$', '')) ~ '/api/vpn/l2vpns/?limit=0&tag=' ~ (netbox_topology_tag | urlencode) }}"
-            method: GET
-            headers:
-              Authorization: "Token {{ netbox_token }}"
-            validate_certs: "{{ netbox_validate_certs | default(true) }}"
-            return_content: true
-            status_code: 200
-            timeout: 30
-          register: netbox_l2vpns_response
-
-        - name: Normalise NetBox lookup results
-          ansible.builtin.set_fact:
-            netbox_device_records: "{{ netbox_devices | default([]) | map(attribute='value') | list }}"
-            netbox_interface_records: "{{ netbox_interfaces | default([]) | map(attribute='value') | list }}"
-            netbox_cable_records: "{{ netbox_cables | default([]) | map(attribute='value') | list }}"
-            netbox_vlan_records: "{{ netbox_vlans | default([]) | map(attribute='value') | list }}"
-            netbox_vrf_records: "{{ (netbox_vrfs_response.json.results | default([])) if (netbox_vrfs_response.json | default(None)) else [] }}"
-
-        - name: Extract L2VPN payload
-          ansible.builtin.set_fact:
-            netbox_l2vpn_records: "{{ (netbox_l2vpns_response.json.results | default([])) if (netbox_l2vpns_response.json | default(None)) else [] }}"
-
-        - name: Ensure NetBox returned topology objects
-          ansible.builtin.assert:
-            that:
-              - netbox_device_records | length > 0
-            fail_msg: >-
-              No NetBox devices matched tag "{{ netbox_topology_tag }}". Update the tag or
-              populate NetBox before re-running the playbook.
-
-        - name: Render topology structures from NetBox data
-          ansible.builtin.set_fact:
-            netbox_topology: >-
-              {{ lookup('ansible.builtin.template', playbook_dir ~ '/templates/netbox_topology.json.j2') | from_json }}
-
-        - name: Override topology variables with NetBox content
-          ansible.builtin.set_fact:
-            toponodes: "{{ netbox_topology.toponodes }}"
-            topolink_interfaces: "{{ (netbox_topology.topolink_interfaces | default([])) + (cx_local_edge_interfaces | default([])) }}"
-            topolinks: "{{ (netbox_topology.topolinks | default([])) + (cx_local_edge_topolinks | default([])) }}"
-            edge_interfaces: "{{ netbox_topology.edge_interfaces | default(edge_interfaces | default([])) }}"
-            virtual_networks: "{{ netbox_topology.virtual_networks | default(virtual_networks | default([])) }}"
-
-        - name: Note NetBox topology source
-          ansible.builtin.debug:
-            msg: >-
-              Loaded {{ toponodes | length }} nodes, {{ topolinks | length }} links,
-              {{ edge_interfaces | default([]) | length }} edge interfaces, and
-              {{ virtual_networks | default([]) | length }} virtual networks from NetBox tag
-              "{{ netbox_topology_tag }}".
-
-    - name: Ensure TopoLink inputs are present
-      ansible.builtin.assert:
-        that:
-          - topolink_interfaces | length > 0
-          - topolinks | length > 0
-        fail_msg: >-
-          Populate vars/topology/topolinks.yml with interface definitions and logical links before running the demo.
+        fabrics: []
+      when: fabrics is not defined
 
   tasks:
-    - name: Authenticate with Nokia EDA
-      ansible.builtin.import_tasks: tasks/authenticate.yml
+    - name: Collect topology data from NetBox
+      ansible.builtin.include_tasks: tasks/netbox_topology.yml
 
-    - name: Build TopoNode resources
-      ansible.builtin.import_tasks: tasks/toponodes.yml
+    - name: Build transaction manifest from topology data
+      ansible.builtin.include_tasks: tasks/build_transaction.yml
 
-    - name: Build Interface resources
-      ansible.builtin.import_tasks: tasks/interfaces.yml
-
-    - name: Build TopoLink resources
-      ansible.builtin.import_tasks: tasks/topolinks.yml
-
-    - name: Build Fabric resources
-      ansible.builtin.import_tasks: tasks/fabrics.yml
-
-    - name: Build Virtual Network resources
-      ansible.builtin.import_tasks: tasks/virtual_networks.yml
-
-    - name: Submit topology transaction
-      ansible.builtin.import_tasks: tasks/transaction.yml
-
-    - name: Manage CX topology
-      ansible.builtin.import_tasks: tasks/cx_topology.yml
+    - name: Execute Nokia EDA transaction
+      ansible.builtin.include_tasks: tasks/execute_transaction.yml
