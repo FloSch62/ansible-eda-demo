@@ -15,7 +15,9 @@ import requests
 import yaml
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_SITE_NAME = "EDA Demo"
+DEFAULT_SITE_SLUG = "eda"
+DEFAULT_TENANT_NAME = "eda"
+DEFAULT_TENANT_SLUG = "eda"
 DEFAULT_TAG_NAME = "eda-demo-topology"
 EDGE_TAG_NAME = "EDA Edge"
 ISL_TAG_NAME = "ISL"
@@ -186,14 +188,22 @@ def ensure_custom_field_definition(
     return cf_api.create(payload)
 
 
-def ensure_site(nb: pynetbox.api.Api, name: str) -> Any:
-    slug = slugify(name)
+def ensure_site(nb: pynetbox.api.Api, slug: str) -> Any:
     site = nb.dcim.sites.get(slug=slug)
-    payload = {"name": name, "slug": slug}
     if site:
-        site.update(payload)
         return site
-    return nb.dcim.sites.create(payload)
+    raise RuntimeError(
+        f"Expected existing NetBox site with slug '{slug}'. Create it before running the importer."
+    )
+
+
+def ensure_tenant(nb: pynetbox.api.Api, *, name: str, slug: str) -> Any:
+    tenant = nb.tenancy.tenants.get(slug=slug)
+    payload = {"name": name, "slug": slug}
+    if tenant:
+        tenant.update(payload)
+        return tenant
+    return nb.tenancy.tenants.create(payload)
 
 
 def ensure_device_role(nb: pynetbox.api.Api, name: str) -> Any:
@@ -257,6 +267,7 @@ def ensure_device(
     role_id: int,
     platform_id: int,
     site_id: int,
+    tenant_id: Optional[int],
     custom_fields: Dict[str, Any],
     tag_ids: Iterable[int],
 ) -> Any:
@@ -270,6 +281,8 @@ def ensure_device(
         "tags": list(tag_ids),
         "custom_fields": custom_fields,
     }
+    if tenant_id is not None:
+        payload["tenant"] = tenant_id
     device = nb.dcim.devices.get(name=name)
     if device:
         device.update(payload)
@@ -800,7 +813,12 @@ def main() -> int:
     ensure_device_custom_fields(nb)
     ensure_l2vpn_custom_fields(nb)
 
-    site = ensure_site(nb, DEFAULT_SITE_NAME)
+    tenant = ensure_tenant(
+        nb,
+        name=DEFAULT_TENANT_NAME,
+        slug=DEFAULT_TENANT_SLUG,
+    )
+    site = ensure_site(nb, DEFAULT_SITE_SLUG)
     demo_tag = ensure_tag(nb, DEFAULT_TAG_NAME)
     edge_tag = ensure_tag(nb, EDGE_TAG_NAME)
     isl_tag = ensure_tag(nb, ISL_TAG_NAME)
@@ -848,6 +866,7 @@ def main() -> int:
             role_id=role.id,
             platform_id=platform.id,
             site_id=site.id,
+            tenant_id=tenant.id,
             custom_fields=node_cf,
             tag_ids=[demo_tag.id],
         )

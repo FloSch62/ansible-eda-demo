@@ -17,11 +17,11 @@ fabrics:
           - eda.nokia.com/role=interSwitch
         unnumbered: IPV6
         ipMTU: 9200
-      systemPoolIPV4: systemipv4-pool
+      systemPoolIPV4: nb-systemip-v4
       underlayProtocol:
         protocol:
           - EBGP
         bgp:
-          asnPool: asn-pool
+          asnPool: nb-asns
       overlayProtocol:
         protocol: EBGP
