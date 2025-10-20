@@ -7,6 +7,10 @@
     transaction_dry_run: "{{ netbox_transaction_dry_run | default(false) }}"
     transaction_payload_path: "{{ playbook_dir }}/artifacts/netbox-device-transaction.json"
   pre_tasks:
+    - name: Skip NetBox device sync when disabled
+      ansible.builtin.meta: end_play
+      when: not (run_netbox_sync | default(true) | bool)
+
     - name: Validate NetBox connection variables
       ansible.builtin.assert:
         that:

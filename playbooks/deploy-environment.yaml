@@ -9,6 +9,10 @@
     - ../vars/fabrics/fabrics.yml
 
   pre_tasks:
+    - name: Skip environment deployment when disabled
+      ansible.builtin.meta: end_play
+      when: not (run_environment_deploy | default(true) | bool)
+
     - name: Ensure fabric list is defined
       ansible.builtin.set_fact:
         fabrics: []

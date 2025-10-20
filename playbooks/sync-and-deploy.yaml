@@ -1,0 +1,4 @@
+---
+# Convenience wrapper to sync NetBox data before deploying the environment.
+- import_playbook: sync-netbox-devices.yaml
+- import_playbook: deploy-environment.yaml
