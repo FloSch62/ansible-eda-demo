@@ -174,7 +174,8 @@
   {% endfor %}
   {% set tag_slugs = tag_state.slugs %}
   {% set label_map = label_state.value %}
-  {% if edge_tag_slug in tag_slugs %}
+  {% set has_parent = iface.get('parent') %}
+  {% if edge_tag_slug in tag_slugs and has_parent %}
     {% set device_name = iface['device']['name'] %}
     {% set iface_name = iface['name'] %}
     {% set edge_resource = 'edge-' ~ device_name ~ '-' ~ iface_name.replace('/', '-') %}

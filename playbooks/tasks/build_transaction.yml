@@ -17,6 +17,7 @@
       'eda.nokia.com/role': item.role | default('leaf', true),
       'eda.nokia.com/security-profile': item.security_profile | default('managed', true)
     } | to_json | from_json }}"
+    npp_map: "{{ ({'npp': {'mode': 'normal'}} if ((item.on_boarded | default(false)) | bool) else {}) | to_json | from_json }}"
     resource_map: "{{ {
       'apiVersion': 'core.eda.nokia.com/v1',
       'kind': 'TopoNode',
@@ -31,7 +32,7 @@
         'platform': item.platform,
         'version': item.version,
         'onBoarded': (item.on_boarded | default(false)) | bool
-      } | combine(production_address))
+      } | combine(production_address) | combine(npp_map))
     } | to_json | from_json }}"
   loop: "{{ toponodes | default([]) }}"
   loop_control:
