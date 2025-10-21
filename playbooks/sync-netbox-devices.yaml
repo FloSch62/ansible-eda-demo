@@ -196,15 +196,13 @@
           notify:
             - Write EDA poll debug artifact
           until: >-
-            {{
-              (eda_onboard_poll.result is defined)
-              and (
-                eda_onboard_poll.result.get('result', {}).get('spec', {}).get('onBoarded', false)
-                or eda_onboard_poll.result.get('spec', {}).get('onBoarded', false)
-                or eda_onboard_poll.result.get('result', {}).get('status', {}).get('onBoarded', false)
-                or eda_onboard_poll.result.get('status', {}).get('onBoarded', false)
-              )
-            }}
+            (eda_onboard_poll.result is defined)
+            and (
+              eda_onboard_poll.result.get('result', {}).get('spec', {}).get('onBoarded', false)
+              or eda_onboard_poll.result.get('spec', {}).get('onBoarded', false)
+              or eda_onboard_poll.result.get('result', {}).get('status', {}).get('onBoarded', false)
+              or eda_onboard_poll.result.get('status', {}).get('onBoarded', false)
+            )
           retries: "{{ netbox_onboard_poll_retries | default(20) }}"
           delay: "{{ netbox_onboard_poll_interval | default(15) }}"
           loop: "{{ netbox_pending_onboard_devices }}"
