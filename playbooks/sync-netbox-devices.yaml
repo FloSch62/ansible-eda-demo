@@ -118,16 +118,22 @@
           - transaction_crs | length > 0
         fail_msg: No TopoNode change requests were generated for the transaction.
 
-    - name: Prepare transaction request body
+    - name: Prepare transaction request base
       ansible.builtin.set_fact:
-        transaction_request_body: >-
+        transaction_request_base: >-
           {{ {
             'description': transaction_description,
-            'dryRun': transaction_dry_run | bool,
             'resultType': 'normal',
             'retain': True,
             'crs': transaction_crs
           } }}
+
+    - name: Prepare transaction request body
+      ansible.builtin.set_fact:
+        transaction_request_body: >-
+          {{ transaction_request_base | combine({'dryRun': transaction_dry_run | bool}) }}
+        transaction_request_body_dry_run: >-
+          {{ transaction_request_base | combine({'dryRun': True}) }}
 
     - name: Ensure transaction artifact directory exists
       ansible.builtin.file:
@@ -141,6 +147,39 @@
         mode: '0644'
         content: "{{ transaction_request_body | to_nice_json(indent=2) }}"
 
+    - name: Submit NetBox device transaction (dry run)
+      nokia.eda_core_v1.transaction.v2.transaction:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        description: "{{ transaction_request_body_dry_run.description }}"
+        dryRun: true
+        resultType: "{{ transaction_request_body_dry_run.resultType }}"
+        retain: "{{ transaction_request_body_dry_run.retain | bool }}"
+        crs: "{{ transaction_request_body_dry_run.crs }}"
+      register: netbox_transaction_dry_run
+
+    - name: Note dry run submission
+      ansible.builtin.debug:
+        msg: >-
+          Submitted dry run transaction {{ netbox_transaction_dry_run.result.id }} with {{ transaction_crs | length }} TopoNode change request(s).
+
+    - name: Wait for dry run transaction completion
+      nokia.eda_core_v1.transaction.v2.result.execution:
+        base_url: "{{ eda_api_url }}"
+        auth_token: "{{ eda_auth_token }}"
+        tls_skip_verify: "{{ tls_skip_verify | bool }}"
+        transactionId: "{{ netbox_transaction_dry_run.result.id }}"
+        waitForComplete: true
+        failOnErrors: true
+      register: netbox_transaction_dry_run_execution
+
+    - name: Summarise dry run transaction outcome
+      ansible.builtin.debug:
+        msg:
+          summary: "Dry run {{ netbox_transaction_dry_run.result.id }} completed: {{ netbox_transaction_dry_run_execution.result.executionSummary | default('no summary returned') | replace('µ', 'u') }}."
+          proposed_crs: "{{ transaction_crs | length }}"
+
     - name: Submit NetBox device transaction
       nokia.eda_core_v1.transaction.v2.transaction:
         base_url: "{{ eda_api_url }}"
@@ -152,12 +191,19 @@
         retain: "{{ transaction_request_body.retain | bool }}"
         crs: "{{ transaction_request_body.crs }}"
       register: netbox_transaction
+      when:
+        - not (transaction_dry_run | bool)
+        - netbox_transaction_dry_run_execution is defined
+        - netbox_transaction_dry_run_execution is success
 
-    - name: Display transaction identifier
+    - name: Display transaction identifier (execute)
       ansible.builtin.debug:
         msg: >-
-          Submitted {{ 'dry run ' if transaction_dry_run | bool else '' }}transaction {{ netbox_transaction.result.id }}
-          with {{ transaction_crs | length }} TopoNode change request(s).
+          Submitted transaction {{ netbox_transaction.result.id }} with {{ transaction_crs | length }} TopoNode change request(s).
+      when:
+        - not (transaction_dry_run | bool)
+        - netbox_transaction_dry_run_execution is defined
+        - netbox_transaction_dry_run_execution is success
 
     - name: Wait for transaction completion
       when: not (transaction_dry_run | bool)
